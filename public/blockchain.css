@@ -1,0 +1,185 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Questrial", sans-serif;
+}
+
+body {
+  background-color: #1a1a1a;
+  color: white;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  color: white;
+  position: sticky;
+  top: 0;
+}
+
+.header h1 {
+  font-size: 40px;
+  margin: 0;
+}
+
+.back-button {
+  font-size: 1.5em;
+  cursor: pointer;
+}
+
+.user-icon img {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.search-container {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px;
+  margin-top: 20px;
+}
+
+.search-box {
+  flex: 1;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  margin-right: 10px;
+}
+
+.verify-button {
+  padding: 12px 16px;
+  background: rgb(14, 139, 206);
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  white-space: nowrap;
+}
+
+.verify-button:hover {
+  background: black;
+}
+
+.verify-button:disabled {
+  background: rgba(14, 139, 206, 0.5);
+  cursor: not-allowed;
+}
+
+.search-box::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.search-box:focus {
+  outline: none;
+}
+
+.property-card {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  padding: 20px;
+  margin-top: 50px;
+  position: relative;
+}
+
+.property-image {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-bottom: 15px;
+}
+
+.property-title {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.property-details {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 25px;
+}
+.address{
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.address-details {
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-left: 20px;
+  padding-right: 20px;
+  padding: 8px;
+}
+
+.verification-badge {
+  position: absolute;
+  top: -30px;
+  right: -44px;
+  width: 112px;
+  height: 100px;
+  border-radius: 50%;
+  padding: 5px;
+}
+
+.verification-message {
+  margin-top: 20px;
+  padding: 30px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  text-align: center;
+}
+
+.verification-icon {
+  width: 60px;
+  height: 60px;
+  margin-bottom: 20px;
+}
+
+.message-text {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.error-message {
+  color: #ff6b6b;
+  margin-top: 10px;
+  display: none;
+  text-align: center;
+}

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrustVault</title>
+  <link rel="stylesheet" href="./Login.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Questrial&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <img src="./assets/logo.png" alt="TrustVault Logo">
+    </div>
+    <div class="tabs">
+      <button id="loginTab" class="tab active">Login</button>
+      <button id="signupTab" class="tab">Signup</button>
+    </div>
+
+    <div class="error-box" id="errorBox" style="display: none;"></div>
+
+    <div id="loginForm" class="form active">
+    <form class="loginform">
+      <input type="text" placeholder="Username" required>
+      <input type="password" placeholder="Password" required>
+      <button class="btn">Login</button>
+    </form>
+     <a href="./Forgotpass.html" class="forgot-password">Forgot Password</a>
+    </div>
+    <div id="signupForm" class="form">
+    <form class="signupform">
+      <input type="text" placeholder="Name" required>
+      <input type="email" placeholder="Email" required>
+      <input type="text" placeholder="Username" required>
+      <input type="password" placeholder="Password" required>
+      <button class="btn">Sign Up</button>
+    </form>
+    </div>
+  </div>
+  <script src="./Login.js"></script>
+</body>
+</html>

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Land Registry Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="./govdash.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Questrial&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Left Sidebar -->
+        <div class="sidebar">
+            <div class="card">
+                <div class="profile-info">
+                    <div class="avatar">SW</div>
+                    <h2>Sarah Wilson</h2>
+                    <p class="text-gray">Document Verifier</p>
+                </div>
+                <div class="button-group">
+                    <button class="btn-primary" onclick="showModal('hashModal')">
+                        <i class="fas fa-cube"></i> Generate Hash
+                    </button>
+                    <br>
+                    <button class="btn-secondary" onclick="showModal('signatureModal')">
+                        <i class="fas fa-signature"></i> Update Signature
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="main">
+            <!-- Stats Grid -->
+            <div class="grid">
+                <!-- Pending Verifications -->
+                <div class="card card-clickable" onclick="showModal('pendingModal')">
+                    <div class="metric">
+                        <div class="metric-label">
+                            <i class="fas fa-clock"></i> Pending Verifications
+                        </div>
+                        <div class="metric-value text-red">12</div>
+                        <div class="metric-subtext">4 urgent</div>
+                    </div>
+                </div>
+
+                <!-- Transfer Requests -->
+                <div class="card card-clickable" onclick="showModal('transferModal')">
+                    <div class="metric">
+                        <div class="metric-label">
+                            <i class="fas fa-exchange-alt"></i> Transfer Requests
+                        </div>
+                        <div class="metric-value text-yellow">8</div>
+                        <div class="metric-subtext">2 pending approval</div>
+                    </div>
+                </div>
+
+                <!-- Completed Today -->
+                <div class="card card-clickable" onclick="showModal('completedModal')">
+                    <div class="metric">
+                        <div class="metric-label">
+                            <i class="fas fa-check-circle"></i> Completed Today
+                        </div>
+                        <div class="metric-value text-green">25</div>
+                        <div class="metric-subtext">Last: 5 mins ago</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="fas fa-history"></i> Recent Activity</h2>
+                    <button class="btn-secondary btn-small" onclick="refreshActivities()">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+                <div id="activityList" class="activity-list">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Document Details Modal -->
+    <div id="documentModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-file-alt"></i> Document Details</h2>
+                <button class="close-btn" onclick="closeModal('documentModal')">&times;</button>
+            </div>
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('details')">
+                    <i class="fas fa-info-circle"></i> Details
+                </div>
+                <div class="tab" onclick="switchTab('files')">
+                    <i class="fas fa-folder-open"></i> Related Files
+                </div>
+                <div class="tab" onclick="switchTab('history')">
+                    <i class="fas fa-history"></i> History
+                </div>
+            </div>
+            <div id="documentContent">
+                <!-- Populated by JavaScript -->
+            </div>
+            <div class="button-group">
+                <button class="btn-primary" onclick="verifyDocument()">
+                    <i class="fas fa-check-circle"></i> Verify Document
+                </button>
+                <button class="btn-secondary" onclick="closeModal('documentModal')">
+                    <i class="fas fa-times"></i> Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pending Documents Modal -->
+    <div id="pendingModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-clock"></i> Pending Verifications</h2>
+                <button class="close-btn" onclick="closeModal('pendingModal')">&times;</button>
+            </div>
+            <div class="search-bar">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search documents..." onkeyup="filterDocuments(this.value, 'pending')">
+            </div>
+            <div id="pendingList" class="document-list">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Transfer Requests Modal -->
+    <div id="transferModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-exchange-alt"></i> Transfer Requests</h2>
+                <button class="close-btn" onclick="closeModal('transferModal')">&times;</button>
+            </div>
+            <div class="search-bar">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search transfers..." onkeyup="filterDocuments(this.value, 'transfer')">
+            </div>
+            <div id="transferList" class="document-list">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Completed Documents Modal -->
+    <div id="completedModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-check-circle"></i> Completed Documents</h2>
+                <button class="close-btn" onclick="closeModal('completedModal')">&times;</button>
+            </div>
+            <div class="search-bar">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search completed..." onkeyup="filterDocuments(this.value, 'completed')">
+            </div>
+            <div id="completedList" class="document-list">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate Hash Modal -->
+    <div id="hashModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-cube"></i> Generate Blockchain Hash</h2>
+                <button class="close-btn" onclick="closeModal('hashModal')">&times;</button>
+            </div>
+            <form id="hashForm" onsubmit="generateHash(event)">
+                <div class="form-group">
+                    <label>Document Type</label>
+                    <select id="docType" required>
+                        <option value="">Select Document Type</option>
+                        <option value="sale">Sale Deed</option>
+                        <option value="transfer">Property Transfer</option>
+                        <option value="lease">Lease Agreement</option>
+                        <option value="other">Other Document</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Document ID</label>
+                    <input type="text" id="docId" placeholder="Enter Document ID" required>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-cube"></i> Generate Hash
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('hashModal')">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Digital Signature Modal -->
+    <div id="signatureModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-signature"></i> Update Digital Signature</h2>
+                <button class="close-btn" onclick="closeModal('signatureModal')">&times;</button>
+            </div>
+            <form id="signatureForm" onsubmit="updateSignature(event)">
+                <div class="form-group">
+                    <label>Certificate File</label>
+                    <div class="file-input">
+                        <input type="file" id="certFile" accept=".cert,.key" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Current Password</label>
+                    <input type="password" id="currentPass" placeholder="Enter current password" required>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-save"></i> Update Signature
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('signatureModal')">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Modal Backdrop -->
+    <div id="modalBackdrop" class="modal-backdrop hidden"></div>
+
+    <!-- Scripts -->
+    <script src="./govdash.js"></script>
+</body>
+</html>
