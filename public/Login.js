@@ -1,3 +1,36 @@
+import { setToken, removeToken } from "/auth.js";
+
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const token = localStorage.getItem("token");
+    if (token) {
+      const response = await fetch("/checkAuth", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await response.json();
+      if (data.authenticated) {
+        console.log("User is already logged in, redirecting to dashboard.");
+        window.location.href = "/dashboard.html";
+      } else {
+        console.warn("Token invalid, clearing token.");
+        localStorage.removeItem("token");
+      }
+    }
+  } catch (error) {
+    console.error("Auth check failed:", error);
+    localStorage.removeItem("token");
+  }
+});
+
+import { auth } from "../firebase.js";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  sendEmailVerification,
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
 const loginTab = document.getElementById("loginTab");
 const signupTab = document.getElementById("signupTab");
 const loginForm = document.getElementById("loginForm");
@@ -18,33 +51,146 @@ signupTab.addEventListener("click", () => {
   loginForm.classList.remove("active");
 });
 
-document.querySelector(".signupform").addEventListener("submit", (e) => {
-  e.preventDefault(); // Prevent form submission
-  const passwordInput = signupForm.querySelector('input[type="password"]');
-  const password = passwordInput.value;
+document.querySelector(".loginform").addEventListener("submit", async (e) => {
+  e.preventDefault();
 
-  const isValidPassword = validatePassword(password);
+  const email = document.getElementById("loginEmail").value;
+  const password = document.getElementById("loginPassword").value;
 
-  if (!isValidPassword) {
-    showError("Password must be at least 8 characters long, contain at least one uppercase letter, one number, and one special character.");
-  } else {
-    // If password is valid, proceed with form submission or next steps
-    alert("Signup successful!");
-    signupForm.submit(); // Uncomment this if backend handling is ready
+  try {
+    const userCredential = await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+    const user = userCredential.user;
+
+    if (!user.emailVerified) {
+      showError("Please verify your email before logging in");
+      return;
+    }
+
+    const response = await fetch("/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: user.email,
+        name: user.displayName,
+        firebaseUID: user.uid,
+      }),
+    });
+
+    const data = await response.json();
+    console.log("Login response:", data); // Add this
+
+    if (data.token) {
+      setToken(data.token);
+      console.log("Token stored:", data.token); // Add this line
+      window.location.href = "./dashboard.html";
+    } else {
+      throw new Error("No token received from server");
+    }
+  } catch (error) {
+    console.error("Login error:", error);
+    showError(getErrorMessage(error.code || error.message));
   }
 });
 
+document.querySelector(".signupform").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const name = document.getElementById("signupName").value;
+  const email = document.getElementById("signupEmail").value;
+  const password = document.getElementById("signupPassword").value;
+
+  if (!validatePassword(password)) {
+    showError(
+      "Password must be at least 8 characters long, contain at least one uppercase letter, one number, and one special character."
+    );
+    return;
+  }
+
+  try {
+    const userCredential = await createUserWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+    const user = userCredential.user;
+
+    await updateProfile(user, {
+      displayName: name,
+    });
+
+    await sendEmailVerification(user);
+    showError(
+      "Please check your email to verify your account before logging in."
+    );
+    loginTab.click();
+  } catch (error) {
+    console.error("Signup error:", error);
+    showError(getErrorMessage(error.code));
+  }
+});
+
+async function saveUserToMongoDB(email, name) {
+  try {
+    const token = localStorage.getItem("token");
+    const response = await fetch("/users", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ email, name }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to save user data");
+    }
+  } catch (error) {
+    console.error("Error saving user to MongoDB:", error);
+    throw error;
+  }
+}
+
 function validatePassword(password) {
-  const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  const passwordRegex =
+    /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
   return passwordRegex.test(password);
 }
 
 function showError(message) {
   errorBox.textContent = message;
   errorBox.style.display = "block";
-
-  // Auto-hide the error box after 5 seconds
   setTimeout(() => {
     errorBox.style.display = "none";
   }, 5000);
+}
+
+function getErrorMessage(errorCode) {
+  switch (errorCode) {
+    case "auth/email-already-in-use":
+      return "This email is already registered. Please login instead.";
+    case "auth/invalid-email":
+      return "Invalid email address.";
+    case "auth/operation-not-allowed":
+      return "Email/password accounts are not enabled. Please contact support.";
+    case "auth/weak-password":
+      return "Password is too weak. Please choose a stronger password.";
+    case "auth/user-disabled":
+      return "This account has been disabled. Please contact support.";
+    case "auth/user-not-found":
+      return "No account found with this email.";
+    case "auth/wrong-password":
+      return "Incorrect password.";
+    case "auth/invalid-credential":
+      return "Invalid Email or Password, please try again.";
+    case "No token received from server":
+      return "Authentication failed. Please try again.";
+    default:
+      return "An error occurred. Please try again.";
+  }
 }

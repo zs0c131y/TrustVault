@@ -1,87 +1,114 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TrustVault - Modern Property Registry</title>
-  <link rel="stylesheet" href="./profile.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Questrial&display=swap" rel="stylesheet">
-</head>
-<body>
-  <div class="profile-container">
-    <!-- Header Section -->
-    <div class="profile-header">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrustVault - Modern Property Registry</title>
+    <link rel="stylesheet" href="./profile.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Questrial&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="profile-container">
+      <!-- Header Section -->
+      <div class="profile-header">
         <label for="upload-profile-picture" class="profile-picture-label">
-          <img src="/api/placeholder/140/140" alt="Profile Picture" class="profile-picture" id="profile-picture">
+          <img
+            src="/api/placeholder/140/140"
+            alt="Profile Picture"
+            class="profile-picture"
+            id="profile-picture"
+          />
         </label>
-        <input type="file" id="upload-profile-picture" style="display: none;" accept="image/*">
+        <input
+          type="file"
+          id="upload-profile-picture"
+          style="display: none"
+          accept="image/*"
+        />
         <h1 id="user-name">John Doe</h1>
-        <p class="user-role">Property Owner <span class="verified-badge">KYC Verified</span></p>
+        <p class="user-role">
+          Property Owner <span class="verified-badge">KYC Verified</span>
+        </p>
       </div>
 
-    <!-- Property Portfolio Section -->
-    <div class="section">
-      <h2>Property Portfolio</h2>
-      <div class="property-card">
-        <h3>Luxury Villa</h3>
-        <p>Location: Koramangala, Bengaluru</p>
-        <p>Registry: BLR-KOR-2024-001 <span class="verified-badge">Verified</span></p>
-        <div class="blockchain-info">Contract: 0x742d35Cc6634C0532925a3b844Bc454e4438f44e</div>
-        <button id="view-property">View Details</button>
+      <!-- Property Portfolio Section -->
+      <div class="section">
+        <h2>Property Portfolio</h2>
+        <div class="property-card">
+          <h3>Luxury Villa</h3>
+          <p>Location: Koramangala, Bengaluru</p>
+          <p>
+            Registry: BLR-KOR-2024-001
+            <span class="verified-badge">Verified</span>
+          </p>
+          <div class="blockchain-info">
+            Contract: 0x742d35Cc6634C0532925a3b844Bc454e4438f44e
+          </div>
+          <button id="view-property">View Details</button>
+        </div>
+        <div class="property-card">
+          <h3>Commercial Space</h3>
+          <p>Location: HSR Layout, Bengaluru</p>
+          <p>
+            Registry: BLR-HSR-2024-003
+            <span class="verified-badge">Verified</span>
+          </p>
+          <div class="blockchain-info">
+            Contract: 0x891d35Cc7734C0532925a3b844Bc454e4438f55f
+          </div>
+          <button id="view-property">View Details</button>
+        </div>
       </div>
-      <div class="property-card">
-        <h3>Commercial Space</h3>
-        <p>Location: HSR Layout, Bengaluru</p>
-        <p>Registry: BLR-HSR-2024-003 <span class="verified-badge">Verified</span></p>
-        <div class="blockchain-info">Contract: 0x891d35Cc7734C0532925a3b844Bc454e4438f55f</div>
-        <button id="view-property">View Details</button>
+
+      <!-- Document Center -->
+      <div class="section">
+        <h2>Document Center</h2>
+        <div class="info-item">
+          <label>Verified Documents:</label>
+          <p>8 Documents <span class="verified-badge">All Current</span></p>
+        </div>
+        <button id="verify-new-document">Verify New Document</button>
+        <button id="view-documents">View All Documents</button>
+      </div>
+
+      <!-- Blockchain Activity -->
+      <div class="section">
+        <h2>Blockchain Activity</h2>
+        <div class="activity-item new-activity">
+          <p>Property Deed Verification Completed</p>
+          <small>10 minutes ago</small>
+        </div>
+        <div class="activity-item">
+          <p>Digital Signature Issued</p>
+          <small>2 hours ago</small>
+        </div>
+        <button id="view-all-activities">View All Activities</button>
+      </div>
+
+      <!-- Security Center -->
+      <div class="section">
+        <h2>Security Center</h2>
+        <div class="info-item">
+          <label>Wallet Status:</label>
+          <p>Connected <span class="verified-badge">MetaMask</span></p>
+        </div>
+        <div class="blockchain-info">
+          0x742d35Cc6634C0532925a3b844Bc454e4438f44e
+        </div>
+        <button id="manage-security">Manage Security Settings</button>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <button id="logout">Logout</button>
       </div>
     </div>
 
-    <!-- Document Center -->
-    <div class="section">
-      <h2>Document Center</h2>
-      <div class="info-item">
-        <label>Verified Documents:</label>
-        <p>8 Documents <span class="verified-badge">All Current</span></p>
-      </div>
-      <button id="verify-new-document">Verify New Document</button>
-      <button id="view-documents">View All Documents</button>
-    </div>
-
-    <!-- Blockchain Activity -->
-    <div class="section">
-      <h2>Blockchain Activity</h2>
-      <div class="activity-item new-activity">
-        <p>Property Deed Verification Completed</p>
-        <small>10 minutes ago</small>
-      </div>
-      <div class="activity-item">
-        <p>Digital Signature Issued</p>
-        <small>2 hours ago</small>
-      </div>
-      <button id="view-all-activities">View All Activities</button>
-    </div>
-
-    <!-- Security Center -->
-    <div class="section">
-      <h2>Security Center</h2>
-      <div class="info-item">
-        <label>Wallet Status:</label>
-        <p>Connected <span class="verified-badge">MetaMask</span></p>
-      </div>
-      <div class="blockchain-info">0x742d35Cc6634C0532925a3b844Bc454e4438f44e</div>
-      <button id="manage-security">Manage Security Settings</button>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer">
-      <button id="logout">Logout</button>
-    </div>
-  </div>
-
-  <script src="./profile.js"></script>
-</body>
+    <script src="./profile.js" type="module"></script>
+  </body>
 </html>

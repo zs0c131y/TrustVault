@@ -4,21 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Register New Property</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Questrial&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./registernewprop.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Questrial&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./registernewprop.css" />
   </head>
   <body>
-      <header class="header">
-        <div class="back-button" id="backButton">
-            <span>&lt;</span>
-        </div>
-        <h1>Register New Property</h1>
-        <div class="user-icon">
-          <a href="./profile.html">
-            <img src="./assets/user.png" alt="User Icon"></a>
-        </div>
+    <header class="header">
+      <div class="back-button" id="backButton">
+        <span>&lt;</span>
+      </div>
+      <h1>Register New Property</h1>
+      <div class="user-icon">
+        <a href="./profile.html">
+          <img src="./assets/user.png" alt="User Icon"
+        /></a>
+      </div>
     </header>
 
     <form id="propertyForm">
@@ -44,7 +48,9 @@
             </div>
             <div class="form-group">
               <input type="text" placeholder="Current Address" required />
-              <em style="font-size: 10px;">Current Address is same as permanent address?</em>
+              <em style="font-size: 10px"
+                >Current Address is same as permanent address?</em
+              >
             </div>
           </section>
 
@@ -152,20 +158,24 @@
 
           <section class="ownership-history">
             <h2>Ownership History</h2>
-            <em style="font-size: 10px;">Only most recent owner is shown.</em>
+            <em style="font-size: 10px">Only most recent owner is shown.</em>
             <p>No Disputed Share Details<br />Inherited property - 2011-2023</p>
           </section>
 
           <section class="appointement-details">
             <h2>Appointment Details</h2>
             <select id="Choose" class="dropdown-select">
-              <option value="register" disabled selected>Choose Sub-Registrar Office</option>
+              <option value="register" disabled selected>
+                Choose Sub-Registrar Office
+              </option>
               <option value="office1">Sub-Registrar Office 1</option>
               <option value="office2">Sub-Registrar Office 2</option>
               <option value="office3">Sub-Registrar Office 3</option>
             </select>
             <select id="date" class="dropdown-select">
-              <option value="date" disabled selected>Choose Date and Time</option>
+              <option value="date" disabled selected>
+                Choose Date and Time
+              </option>
               <option value="date1">Sub-Registrar Office 1</option>
               <option value="date2">Sub-Registrar Office 2</option>
               <option value="date3">Sub-Registrar Office 3</option>
@@ -260,72 +270,20 @@
             </div>
             <div class="form-group">
               <input type="text" placeholder="Current Address" required />
-              <em style="font-size: 10px;">Current Address is same as permanent address?</em>
+              <em style="font-size: 10px"
+                >Current Address is same as permanent address?</em
+              >
             </div>
           </section>
         </div>
       </div>
 
       <div style="text-align: center">
-        <a href="./registered.html">
         <button type="submit" class="continue-btn">Continue</button>
-        </a>
       </div>
     </form>
 
-    <script>
-      document
-        .getElementById("propertyForm")
-        .addEventListener("submit", function (e) {
-          e.preventDefault();
-          // Add your form submission logic here
-          console.log("Form submitted");
-        });
-
-        document.getElementById("backButton").addEventListener("click", () => {
-          history.back(); // Navigates to the previous page
-      });
-
-      // Handle file uploads
-      document.querySelectorAll('input[type="file"]').forEach((input) => {
-        input.addEventListener("change", function (e) {
-          const file = e.target.files[0];
-          const maxSize = e.target.dataset.maxSize * 1024 * 1024; // Convert to bytes
-          const fileNameDisplay =
-            e.target.parentElement.querySelector(".file-name");
-          const documentItem = e.target.parentElement;
-
-          if (file) {
-            if (file.size > maxSize) {
-              alert("File size exceeds 10MB limit");
-              e.target.value = ""; // Clear the file input
-              documentItem.classList.remove("has-file");
-              fileNameDisplay.textContent = "";
-              return;
-            }
-
-            const allowedTypes = [".pdf", ".jpg", ".jpeg", ".png"];
-            const fileExtension =
-              "." + file.name.split(".").pop().toLowerCase();
-
-            if (!allowedTypes.includes(fileExtension)) {
-              alert(
-                "Invalid file type. Please upload PDF, JPG, or PNG files only."
-              );
-              e.target.value = "";
-              documentItem.classList.remove("has-file");
-              fileNameDisplay.textContent = "";
-              return;
-            }
-
-            documentItem.classList.add("has-file");
-            fileNameDisplay.textContent = file.name;
-          } else {
-            documentItem.classList.remove("has-file");
-            fileNameDisplay.textContent = "";
-          }
-        });
-      });
-    </script>
+    <script src="auth.js" type="module"></script>
+    <script src="registernewprop.js" type="module"></script>
   </body>
 </html>
