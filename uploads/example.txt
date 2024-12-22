@@ -1,0 +1,1 @@
+Dummy file for "uploads" folder. which is where the user uploaded/generated files are stored with time date in Unix format and the user's Firebase UID.
