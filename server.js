@@ -23,49 +23,105 @@ const dbName = "trustvault";
 let client = null;
 
 // Security Middleware Configuration
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: [
-          "'self'",
-          "*",
-          "data:",
-          "blob:",
-          "'unsafe-inline'",
-          "'unsafe-eval'",
-        ],
-        scriptSrc: [
-          "'self'",
-          "*",
-          "data:",
-          "blob:",
-          "'unsafe-inline'",
-          "'unsafe-eval'",
-          "https://www.gstatic.com",
-          "https://apis.google.com",
-          "https://*.firebaseio.com",
-          "https://www.googleapis.com",
-          "https://cdn.firebase.com",
-          "https://*.firebaseapp.com",
-          "https://identitytoolkit.googleapis.com",
-        ],
-        connectSrc: ["'self'", "*", "data:", "blob:"],
-        styleSrc: ["'self'", "*", "'unsafe-inline'"],
-        imgSrc: ["'self'", "*", "data:", "blob:"],
-        fontSrc: ["'self'", "*", "data:", "https://fonts.gstatic.com"],
-        frameSrc: ["'self'", "*"],
-        objectSrc: ["'self'", "*"],
-        mediaSrc: ["'self'", "*"],
-        workerSrc: ["'self'", "*", "blob:"],
-        formAction: ["'self'", "*"],
-        baseUri: ["'self'"],
-      },
-    },
-    crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-  })
-);
+// const developmentCSP = {
+//   contentSecurityPolicy: {
+//     directives: {
+//       defaultSrc: ["'self'", "*"],
+//       scriptSrc: [
+//         "'self'",
+//         "'unsafe-inline'",
+//         "'unsafe-eval'",
+//         "https://www.gstatic.com",
+//         "https://*.googleapis.com",
+//         "https://*.firebaseio.com",
+//         "https://*.firebaseapp.com",
+//         "https://cdnjs.cloudflare.com", // Added this
+//       ],
+//       scriptSrcAttr: ["'unsafe-inline'"],
+//       scriptSrcElem: [
+//         "'self'",
+//         "'unsafe-inline'",
+//         "https://www.gstatic.com",
+//         "https://*.googleapis.com",
+//         "https://cdnjs.cloudflare.com", // Added this
+//       ],
+//       styleSrc: [
+//         "'self'",
+//         "'unsafe-inline'",
+//         "https://fonts.googleapis.com",
+//         "https://*.gstatic.com",
+//       ],
+//       styleSrcElem: [
+//         "'self'",
+//         "'unsafe-inline'",
+//         "https://fonts.googleapis.com",
+//         "https://*.gstatic.com",
+//       ],
+//       connectSrc: [
+//         "'self'",
+//         "*",
+//         "https://*.googleapis.com",
+//         "https://*.firebaseio.com",
+//         "https://*.firebase.com",
+//         "https://*.firebaseapp.com",
+//       ],
+//       imgSrc: ["'self'", "data:", "blob:", "*"],
+//       fontSrc: [
+//         "'self'",
+//         "https://fonts.gstatic.com",
+//         "https://*.gstatic.com",
+//         "*",
+//       ],
+//       frameSrc: ["'self'", "*"],
+//       objectSrc: ["'none'"],
+//       mediaSrc: ["'self'"],
+//       workerSrc: ["'self'", "blob:"],
+//       childSrc: ["'self'", "blob:"],
+//       formAction: ["'self'"],
+//       baseUri: ["'self'"],
+//     },
+//     reportOnly: true,
+//   },
+//   crossOriginEmbedderPolicy: false,
+//   crossOriginResourcePolicy: { policy: "cross-origin" },
+// };
+
+// const productionCSP = {
+//   contentSecurityPolicy: {
+//     directives: {
+//       defaultSrc: ["'self'"],
+//       scriptSrc: [
+//         "'self'",
+//         "https://www.gstatic.com",
+//         "https://*.googleapis.com",
+//         "https://*.firebaseio.com",
+//         "https://*.firebaseapp.com",
+//         "https://cdnjs.cloudflare.com", // Added this
+//       ],
+//       styleSrc: ["'self'", "'unsafe-inline'"],
+//       connectSrc: ["'self'", "https://*.firebaseio.com"],
+//       imgSrc: ["'self'", "data:", "https:"],
+//       fontSrc: ["'self'", "https://fonts.gstatic.com"],
+//       frameSrc: ["'self'"],
+//       objectSrc: ["'none'"],
+//       mediaSrc: ["'self'"],
+//       workerSrc: ["'self'", "blob:"],
+//       childSrc: ["'self'", "blob:"],
+//       formAction: ["'self'"],
+//       baseUri: ["'self'"],
+//       upgradeInsecureRequests: [],
+//     },
+//   },
+//   crossOriginEmbedderPolicy: true,
+//   crossOriginResourcePolicy: { policy: "same-origin" },
+// };
+
+// // Apply different configurations based on environment
+// app.use(
+//   helmet(
+//     process.env.NODE_ENV === "development" ? developmentCSP : productionCSP
+//   )
+// );
 
 // Rate limiting configuration
 const apiLimiter = rateLimit({
@@ -337,6 +393,7 @@ app.post(
         propertyInfo = JSON.parse(req.body.propertyInfo);
         witnessInfo = JSON.parse(req.body.witnessInfo);
         appointmentInfo = JSON.parse(req.body.appointmentInfo);
+        registrationType = "new_registration";
       } catch (error) {
         return res.status(400).json({ error: "Invalid JSON data" });
       }
@@ -353,6 +410,7 @@ app.post(
         propertyInfo,
         witnessInfo,
         appointmentInfo,
+        registrationType,
         documents,
         status: "pending",
         createdAt: new Date(),
@@ -365,6 +423,84 @@ app.post(
 
       await db.collection("auditLog").insertOne({
         action: "PROPERTY_REGISTRATION",
+        userId: req.user.email,
+        registrationId: result.insertedId,
+        timestamp: new Date(),
+        ipAddress: req.ip,
+      });
+
+      res.status(201).json({
+        message: "Registration request submitted successfully",
+        registrationId: result.insertedId,
+      });
+    } catch (error) {
+      console.error("Registration error:", error);
+      res.status(500).json({
+        message: "Failed to submit registration request",
+        error:
+          process.env.NODE_ENV === "production"
+            ? "Internal server error"
+            : error.message,
+      });
+    }
+  }
+);
+
+app.post(
+  "/api/transfer-property",
+  verifyToken,
+  sanitizeInput,
+  upload.fields([
+    { name: "saleDeed", maxCount: 1 },
+    { name: "taxReceipts", maxCount: 1 },
+    { name: "encumbrance", maxCount: 1 },
+    { name: "occupancy", maxCount: 1 },
+    { name: "buildingPlan", maxCount: 1 },
+    { name: "powerAttorney", maxCount: 1 },
+    { name: "photoCertificate", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const db = client.db(dbName);
+      const registrations = db.collection("transferRequests");
+      console.log(req.body);
+
+      let ownerInfo, propertyInfo, witnessInfo, appointmentInfo;
+      try {
+        ownerInfo = JSON.parse(req.body.ownerInfo);
+        propertyInfo = JSON.parse(req.body.propertyInfo);
+        witnessInfo = JSON.parse(req.body.witnessInfo);
+        appointmentInfo = JSON.parse(req.body.appointmentInfo);
+        registrationType = "transfer";
+      } catch (error) {
+        return res.status(400).json({ error: "Invalid JSON data" });
+      }
+
+      const documents = {};
+      if (req.files) {
+        Object.keys(req.files).forEach((key) => {
+          documents[key] = req.files[key][0].path;
+        });
+      }
+
+      const registration = {
+        ownerInfo,
+        propertyInfo,
+        witnessInfo,
+        appointmentInfo,
+        registrationType,
+        documents,
+        status: "pending",
+        createdAt: new Date(),
+        createdBy: req.user.email,
+        lastModified: new Date(),
+        ipAddress: req.ip,
+      };
+
+      const result = await registrations.insertOne(registration);
+
+      await db.collection("auditLog").insertOne({
+        action: "PROPERTY_TRANSFER",
         userId: req.user.email,
         registrationId: result.insertedId,
         timestamp: new Date(),

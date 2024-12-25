@@ -12,7 +12,7 @@ body {
 }
 
 .container {
-  max-width: 600px;
+  max-width: 800px; /* Increased for blockchain data display */
   margin: 0 auto;
   padding: 20px;
 }
@@ -47,51 +47,82 @@ body {
 .search-container {
   display: flex;
   align-items: center;
+  gap: 10px;
   background: rgba(255, 255, 255, 0.1);
   border-radius: 10px;
-  padding: 10px;
-  margin-top: 20px;
+  padding: 15px;
+  margin: 20px 0;
 }
 
 .search-box {
   flex: 1;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: none;
+  padding: 15px;
+  background: rgba(39, 39, 39, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   color: white;
   font-size: 16px;
-  margin-right: 10px;
-}
-
-.verify-button {
-  padding: 12px 16px;
-  background: rgb(14, 139, 206);
-  font-weight: bold;
-  border: none;
-  border-radius: 8px;
-  color: white;
-  font-size: 16px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-  white-space: nowrap;
-}
-
-.verify-button:hover {
-  background: black;
-}
-
-.verify-button:disabled {
-  background: rgba(14, 139, 206, 0.5);
-  cursor: not-allowed;
+  outline: none;
 }
 
 .search-box::placeholder {
   color: rgba(255, 255, 255, 0.5);
 }
 
-.search-box:focus {
-  outline: none;
+.verify-button {
+  padding: 15px 25px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.verify-button:not(:disabled):hover {
+  background-color: #45a049;
+}
+
+.verify-button:disabled {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: not-allowed;
+}
+
+.search-info {
+  color: rgba(255, 255, 255, 0.7);
+  margin: 20px 0;
+  padding: 0 15px;
+}
+
+.search-info li {
+  margin: 5px 0;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.connect-button {
+  display: block;
+  padding: 10px 20px;
+  background-color: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  margin: 10px auto;
+  width: fit-content;
+}
+
+.connect-button:hover {
+  background-color: #1976d2;
+}
+
+.connect-button:disabled {
+  background-color: #90caf9;
+  cursor: wait;
 }
 
 .property-card {
@@ -108,43 +139,6 @@ body {
   object-fit: cover;
   border-radius: 10px;
   margin-bottom: 15px;
-}
-
-.property-title {
-  font-size: 20px;
-  font-weight: bold;
-  margin-bottom: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.property-details {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 28px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-top: 25px;
-}
-.address{
-    color: #fff;
-    font-size: 16px;
-    font-weight: bold;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.address-details {
-  color: #fff;
-  font-size: 14px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-left: 20px;
-  padding-right: 20px;
-  padding: 8px;
 }
 
 .verification-badge {
@@ -165,21 +159,138 @@ body {
   text-align: center;
 }
 
-.verification-icon {
-  width: 60px;
-  height: 60px;
+.error-message {
+  color: #ff4444;
+  text-align: center;
+  margin: 10px 0;
+  padding: 10px;
+  display: none;
+}
+
+/* New styles for blockchain data viewer */
+.blockchain-data-container {
+  margin-top: 30px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 20px;
+  display: none;
+}
+
+.data-tabs {
+  display: flex;
+  gap: 10px;
   margin-bottom: 20px;
 }
 
-.message-text {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 16px;
-  line-height: 1.5;
+.tab-button {
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 5px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
 }
 
-.error-message {
-  color: #ff6b6b;
-  margin-top: 10px;
+.tab-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.tab-button.active {
+  background: #4caf50;
+}
+
+.tab-content {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.tab-content.hidden {
   display: none;
+}
+
+.data-item {
+  margin: 12px 0;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+
+.data-label {
+  color: #4caf50;
+  font-weight: bold;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.data-value {
+  color: white;
+  word-break: break-all;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.copy-button {
+  background: #2196f3;
+  border: none;
+  border-radius: 3px;
+  color: white;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: background 0.3s ease;
+}
+
+.copy-button:hover {
+  background: #1976d2;
+}
+
+.event-item {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 15px;
+  margin: 10px 0;
+  border-radius: 8px;
+  border-left: 4px solid #4caf50;
+}
+
+.event-name {
+  color: #4caf50;
+  font-weight: bold;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.event-data {
+  margin-left: 15px;
+}
+
+.property-title,
+.address,
+.address-details {
   text-align: center;
+  margin-bottom: 8px;
+}
+
+.property-title {
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.address {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.address-details {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.property-details {
+  text-align: center;
+  font-size: 24px;
+  margin: 20px 0;
+  color: rgba(255, 255, 255, 0.9);
 }

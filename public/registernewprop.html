@@ -283,7 +283,44 @@
       </div>
     </form>
 
-    <script src="auth.js" type="module"></script>
-    <script src="registernewprop.js" type="module"></script>
+    <!-- Load Web3 first -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.9.0/web3.min.js"></script>
+
+    <!-- Setup debug function before loading modules -->
+    <script>
+      window.debugWeb3Setup = async function () {
+        try {
+          const { initWeb3 } = await import("./web3-config.js");
+          console.log("Starting Web3 debug setup...");
+
+          const { web3, propertyContract, account } = await initWeb3();
+          console.log("Web3 initialized successfully");
+          console.log("Connected account:", account);
+
+          // Get network details
+          const networkId = await web3.eth.net.getId();
+          console.log("Network ID:", networkId);
+
+          // Check contract
+          const contractAddress = propertyContract.options.address;
+          console.log("Contract address:", contractAddress);
+
+          return "Debug complete - all systems operational";
+        } catch (error) {
+          console.error("Debug setup failed:", error);
+          return `Debug failed: ${error.message}`;
+        }
+      };
+    </script>
+
+    <!-- Load your module scripts -->
+    <script type="module" src="web3-config.js"></script>
+    <script type="module" src="auth.js"></script>
+    <script type="module" src="registernewprop.js"></script>
+
+    <!-- Run debug setup -->
+    <!-- <script>
+      debugWeb3Setup().then(console.log).catch(console.error);
+    </script> -->
   </body>
 </html>
