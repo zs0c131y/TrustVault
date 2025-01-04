@@ -4,12 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Transfer Property</title>
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Questrial&display=swap"
       rel="stylesheet"
     />
+
+    <!-- Styles -->
     <link rel="stylesheet" href="./registernewprop.css" />
   </head>
   <body>
@@ -51,6 +55,75 @@
               <em style="font-size: 10px"
                 >Current Address is same as permanent address?</em
               >
+            </div>
+          </section>
+
+          <section>
+            <h2>New Owner's Information</h2>
+            <div class="form-group double-input">
+              <input
+                type="text"
+                placeholder="First Name"
+                required
+                name="newOwner_firstName"
+              />
+              <input
+                type="text"
+                placeholder="Last Name"
+                required
+                name="newOwner_lastName"
+              />
+            </div>
+            <div class="form-group">
+              <input
+                type="email"
+                placeholder="Email Address"
+                required
+                name="newOwner_email"
+              />
+            </div>
+            <div class="form-group">
+              <input
+                type="tel"
+                placeholder="Phone Number"
+                required
+                name="newOwner_phone"
+              />
+            </div>
+            <div class="form-group">
+              <input
+                type="text"
+                placeholder="Aadhar / PAN Number"
+                required
+                name="newOwner_idNumber"
+              />
+            </div>
+            <div class="form-group">
+              <input
+                type="text"
+                placeholder="Permanent Address"
+                required
+                name="newOwner_permanentAddress"
+              />
+            </div>
+            <div class="form-group">
+              <input
+                type="text"
+                placeholder="Current Address"
+                required
+                name="newOwner_currentAddress"
+              />
+              <em style="font-size: 10px"
+                >Current Address is same as permanent address?</em
+              >
+            </div>
+            <div class="form-group">
+              <input
+                type="text"
+                placeholder="Ethereum Address"
+                required
+                name="newOwner_ethAddress"
+              />
             </div>
           </section>
 
@@ -283,7 +356,11 @@
       </div>
     </form>
 
+    <!-- Web3 and Blockchain Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethereumjs-tx@2.1.2/dist/ethereumjs-tx.min.js"></script>
     <script src="auth.js" type="module"></script>
+    <script src="web3-config.js" type="module"></script>
     <script src="ownertransfer.js" type="module"></script>
   </body>
 </html>

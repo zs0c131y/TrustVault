@@ -13,6 +13,9 @@ const jwt = require("jsonwebtoken");
 const { body, validationResult } = require("express-validator");
 const fs = require("fs");
 
+// Module-level variables
+let db = null;
+
 // Initialize express app and environment variables
 const app = express();
 dotenv.config();
@@ -248,12 +251,19 @@ async function connectToMongoDB() {
     });
     await client.connect();
     console.log("Connected to MongoDB successfully");
+    db = client.db(dbName);
     return client;
   } catch (error) {
     console.error("MongoDB connection error:", error);
     process.exit(1);
   }
 }
+
+// Add database middleware
+app.use((req, res, next) => {
+  req.db = db;
+  next();
+});
 
 // Authentication Routes
 app.post("/login", async (req, res) => {
@@ -346,26 +356,6 @@ app.get("/getUserData", verifyToken, async (req, res) => {
   } catch (error) {
     console.error("Get user data error:", error);
     res.status(500).json({ error: "Failed to fetch user data" });
-  }
-});
-
-// Property Routes
-app.get("/api/property/:pid", verifyToken, async (req, res) => {
-  try {
-    const db = client.db(dbName);
-    const properties = db.collection("properties");
-    const pid = xss(req.params.pid);
-
-    const property = await properties.findOne({ pid: pid });
-
-    if (!property) {
-      return res.status(404).json({ error: "Property not found" });
-    }
-
-    res.json(property);
-  } catch (error) {
-    console.error("Property fetch error:", error);
-    res.status(500).json({ error: "Failed to fetch property data" });
   }
 });
 
@@ -462,20 +452,31 @@ app.post(
   async (req, res) => {
     try {
       const db = client.db(dbName);
-      const registrations = db.collection("transferRequests");
-      console.log(req.body);
+      const transferRequests = db.collection("transferRequests");
+      const properties = db.collection("properties");
 
-      let ownerInfo, propertyInfo, witnessInfo, appointmentInfo;
+      // Parse JSON data from form
+      let currentOwnerInfo,
+        newOwnerInfo,
+        propertyInfo,
+        witnessInfo,
+        appointmentInfo,
+        blockchainInfo;
       try {
-        ownerInfo = JSON.parse(req.body.ownerInfo);
+        currentOwnerInfo = JSON.parse(req.body.currentOwnerInfo);
+        newOwnerInfo = JSON.parse(req.body.newOwnerInfo);
         propertyInfo = JSON.parse(req.body.propertyInfo);
         witnessInfo = JSON.parse(req.body.witnessInfo);
         appointmentInfo = JSON.parse(req.body.appointmentInfo);
-        registrationType = "transfer";
+        blockchainInfo = JSON.parse(req.body.blockchainInfo);
       } catch (error) {
-        return res.status(400).json({ error: "Invalid JSON data" });
+        return res.status(400).json({
+          error: "Invalid JSON data",
+          details: error.message,
+        });
       }
 
+      // Process uploaded documents
       const documents = {};
       if (req.files) {
         Object.keys(req.files).forEach((key) => {
@@ -483,38 +484,111 @@ app.post(
         });
       }
 
-      const registration = {
-        ownerInfo,
+      // Validate blockchain info
+      if (!blockchainInfo.transactionHash || !blockchainInfo.blockchainId) {
+        return res.status(400).json({
+          error: "Missing blockchain transaction details",
+        });
+      }
+
+      // Create transfer request record
+      const transferRequest = {
+        currentOwnerInfo,
+        newOwnerInfo,
         propertyInfo,
         witnessInfo,
         appointmentInfo,
-        registrationType,
+        blockchainInfo,
         documents,
         status: "pending",
+        registrationType: "transfer",
         createdAt: new Date(),
         createdBy: req.user.email,
         lastModified: new Date(),
         ipAddress: req.ip,
       };
 
-      const result = await registrations.insertOne(registration);
+      // Insert transfer request
+      const result = await transferRequests.insertOne(transferRequest);
 
+      // Update property ownership in properties collection
+      const propertyUpdate = await properties.updateOne(
+        { blockchainId: blockchainInfo.blockchainId },
+        {
+          $set: {
+            currentOwner: newOwnerInfo,
+            lastTransferDate: new Date(blockchainInfo.transferDate * 1000), // Convert from Unix timestamp
+            lastTransferHash: blockchainInfo.transactionHash,
+            lastModified: new Date(),
+          },
+          $push: {
+            ownershipHistory: {
+              owner: currentOwnerInfo,
+              transferDate: new Date(blockchainInfo.transferDate * 1000),
+              transactionHash: blockchainInfo.transactionHash,
+            },
+          },
+        },
+        { upsert: false }
+      );
+
+      if (propertyUpdate.matchedCount === 0) {
+        // If property doesn't exist, create it
+        await properties.insertOne({
+          blockchainId: blockchainInfo.blockchainId,
+          currentOwner: newOwnerInfo,
+          propertyDetails: propertyInfo,
+          lastTransferDate: new Date(blockchainInfo.transferDate * 1000),
+          lastTransferHash: blockchainInfo.transactionHash,
+          createdAt: new Date(),
+          lastModified: new Date(),
+          ownershipHistory: [
+            {
+              owner: currentOwnerInfo,
+              transferDate: new Date(blockchainInfo.transferDate * 1000),
+              transactionHash: blockchainInfo.transactionHash,
+            },
+          ],
+        });
+      }
+
+      // Add audit log entry
       await db.collection("auditLog").insertOne({
         action: "PROPERTY_TRANSFER",
         userId: req.user.email,
-        registrationId: result.insertedId,
+        transferRequestId: result.insertedId,
+        blockchainId: blockchainInfo.blockchainId,
+        transactionHash: blockchainInfo.transactionHash,
+        previousOwner: currentOwnerInfo.email,
+        newOwner: newOwnerInfo.email,
         timestamp: new Date(),
         ipAddress: req.ip,
       });
 
+      // Send notifications if needed
+      try {
+        // Assuming you have a notification service
+        await sendTransferNotifications({
+          currentOwnerEmail: currentOwnerInfo.email,
+          newOwnerEmail: newOwnerInfo.email,
+          propertyId: propertyInfo.propertyId,
+          transactionHash: blockchainInfo.transactionHash,
+        });
+      } catch (notificationError) {
+        console.error("Notification error:", notificationError);
+        // Don't fail the transfer if notifications fail
+      }
+
       res.status(201).json({
-        message: "Registration request submitted successfully",
-        registrationId: result.insertedId,
+        message: "Property transfer request submitted successfully",
+        requestId: result.insertedId,
+        blockchainId: blockchainInfo.blockchainId,
+        transactionHash: blockchainInfo.transactionHash,
       });
     } catch (error) {
-      console.error("Registration error:", error);
+      console.error("Property transfer error:", error);
       res.status(500).json({
-        message: "Failed to submit registration request",
+        message: "Failed to submit transfer request",
         error:
           process.env.NODE_ENV === "production"
             ? "Internal server error"
@@ -523,6 +597,173 @@ app.post(
     }
   }
 );
+
+app.get("/api/registrations/:propertyId", async (req, res) => {
+  try {
+    if (!db) {
+      throw new Error("Database connection not available");
+    }
+
+    const collection = db.collection("registrationRequests");
+    const propertyId = req.params.propertyId;
+
+    console.log("Looking up property:", propertyId);
+
+    // Try to find the property using different possible field names
+    const property = await collection.findOne(
+      {
+        $or: [
+          { "propertyInfo.propertyId": propertyId },
+          { "propertyInfo.pid": propertyId },
+          { pid: propertyId },
+        ],
+      },
+      {
+        projection: {
+          "propertyInfo.blockchainId": 1,
+          "propertyInfo.pid": 1,
+          blockchainId: 1,
+        },
+      }
+    );
+
+    console.log("Query result:", property);
+
+    if (!property) {
+      // If not found in registrationRequests, try the properties collection
+      const propertiesCollection = db.collection("properties");
+      const propertyInMain = await propertiesCollection.findOne({
+        $or: [
+          { pid: propertyId },
+          { "propertyDetails.propertyId": propertyId },
+        ],
+      });
+
+      if (propertyInMain) {
+        return res.status(200).json({
+          status: 200,
+          propertyInfo: {
+            blockchainId: propertyInMain.blockchainId,
+          },
+        });
+      }
+
+      return res.status(404).json({
+        status: 404,
+        error: "Property not found",
+        searchedId: propertyId,
+      });
+    }
+
+    // Extract blockchainId from wherever it might be in the document structure
+    const blockchainId =
+      property.propertyInfo?.blockchainId ||
+      property.blockchainId ||
+      (property.propertyInfo?.pid ? `0x${property.propertyInfo.pid}` : null);
+
+    if (!blockchainId) {
+      return res.status(404).json({
+        status: 404,
+        error: "Blockchain ID not found for property",
+        searchedId: propertyId,
+      });
+    }
+
+    res.status(200).json({
+      status: 200,
+      propertyInfo: { blockchainId },
+    });
+  } catch (error) {
+    console.error("Error fetching blockchain ID:", error);
+    res.status(500).json({
+      status: 500,
+      error: "Internal server error",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+app.get("/api/property/search", express.json(), async (req, res) => {
+  try {
+    const { mainSearch, area, propertyId } = req.query;
+
+    // Build the query object using $or for flexible searching
+    let query = {};
+    const searchConditions = [];
+
+    if (mainSearch) {
+      searchConditions.push(
+        { property_name: new RegExp(mainSearch, "i") },
+        { city: new RegExp(mainSearch, "i") },
+        { type_of_property: new RegExp(mainSearch, "i") },
+        { pid: new RegExp(mainSearch, "i") }
+      );
+    }
+
+    if (area) {
+      searchConditions.push({ city: new RegExp(area, "i") });
+    }
+
+    if (propertyId) {
+      searchConditions.push({ pid: new RegExp(propertyId, "i") });
+    }
+
+    // Only add $or if there are search conditions
+    if (searchConditions.length > 0) {
+      query.$or = searchConditions;
+    }
+
+    console.log("Search query:", JSON.stringify(query, null, 2));
+
+    const properties = await db
+      .collection("properties")
+      .find(query)
+      .limit(50)
+      .toArray();
+
+    console.log(`Found ${properties.length} properties`);
+
+    // Return empty array if no properties found
+    res.json({
+      properties: properties || [],
+      count: properties.length,
+    });
+  } catch (error) {
+    console.error("Property search error:", error);
+    res.status(500).json({
+      error: "Failed to search properties",
+      details: error.message,
+    });
+  }
+});
+
+// Single property details - No Auth
+app.get("/api/property/:pid", async (req, res) => {
+  try {
+    const pid = req.params.pid;
+    console.log("Fetching property details for PID:", pid);
+
+    const property = await db.collection("properties").findOne({ pid: pid });
+
+    if (!property) {
+      console.log("No property found with PID:", pid);
+      return res.status(404).json({
+        error: "Property not found",
+        pid: pid,
+      });
+    }
+
+    console.log("Found property:", property.pid);
+    res.json(property);
+  } catch (error) {
+    console.error("Property fetch error:", error);
+    res.status(500).json({
+      error: "Failed to fetch property data",
+      details: error.message,
+    });
+  }
+});
 
 // User Routes
 app.post("/users", sanitizeInput, async (req, res) => {
@@ -551,6 +792,13 @@ app.post("/users", sanitizeInput, async (req, res) => {
     console.error("User save error:", error);
     res.status(500).json({ error: "Failed to save user data" });
   }
+});
+
+// Get property blockchain value
+// Add database middleware
+app.use((req, res, next) => {
+  req.db = db;
+  next();
 });
 
 // Error Handling Middleware

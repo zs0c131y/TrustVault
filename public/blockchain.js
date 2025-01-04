@@ -175,44 +175,55 @@ async function initializeBlockchain() {
   }
 }
 
+// Debug
 async function getPropertyDetailsByTxHash(txHash) {
   try {
-    console.log("Fetching property details for transaction:", txHash);
+    console.log("Starting property verification for hash:", txHash);
 
-    // Get transaction receipt
     const receipt = await web3Instance.eth.getTransactionReceipt(txHash);
     if (!receipt) {
       throw new Error("Transaction not found");
     }
-    console.log("Transaction receipt:", receipt);
+    console.log("Full transaction receipt:", receipt);
 
-    // Find PropertyRegistered event
+    // Log the logs array specifically
+    console.log("Transaction logs:", receipt.logs);
+
+    // Find PropertyRegistered event - make sure we're using the correct event signature
     const eventSignature = web3Instance.utils.sha3(
-      "PropertyRegistered(address,string,string,address)"
+      "PropertyRegistered(address,string,string)"
     );
-    const propertyEvent = receipt.logs.find(
-      (log) => log.topics[0] === eventSignature
-    );
+    console.log("Looking for event with signature:", eventSignature);
+
+    const propertyEvent = receipt.logs[0]; // Since we can see there's exactly one log
+    console.log("Found property event:", propertyEvent);
 
     if (!propertyEvent) {
       throw new Error("Property registration event not found in transaction");
     }
-    console.log("Property event found:", propertyEvent);
-
-    // The blockchainId should be the address from the event
-    const blockchainId = propertyEvent.topics[1]; // First indexed parameter
-    console.log("Blockchain ID from event:", blockchainId);
 
     try {
-      // Convert the address from the event topic (32 bytes) to a normal Ethereum address (20 bytes)
-      const normalizedAddress = "0x" + blockchainId.slice(-40);
-      console.log("Normalized address:", normalizedAddress);
+      // Decode the event data with better error handling
+      const decodedEvent = web3Instance.eth.abi.decodeLog(
+        [
+          { type: "address", name: "owner", indexed: true },
+          { type: "string", name: "propertyId" },
+          { type: "string", name: "blockchainId" },
+        ],
+        propertyEvent.data,
+        [propertyEvent.topics[1]]
+      );
+      console.log("Decoded event data:", decodedEvent);
 
-      // Get property details using the blockchain ID
+      // Get the owner address from the event
+      const ownerAddress = decodedEvent.owner;
+      console.log("Owner address from event:", ownerAddress);
+
+      // Get property details using the owner address
       const property = await contractInstance.methods
-        .getProperty(normalizedAddress)
+        .getProperty(ownerAddress)
         .call();
-      console.log("Property details:", property);
+      console.log("Retrieved property details:", property);
 
       return {
         success: true,
@@ -224,14 +235,14 @@ async function getPropertyDetailsByTxHash(txHash) {
           owner: property[4],
           registrationDate: property[5],
           isVerified: property[6],
-          blockchainId: normalizedAddress,
+          blockchainId: ownerAddress,
           transactionHash: txHash,
           blockNumber: receipt.blockNumber,
         },
       };
     } catch (error) {
-      console.error("Error fetching property details:", error);
-      throw new Error("Property not found or not accessible");
+      console.error("Error during property data processing:", error);
+      throw new Error(`Failed to process property data: ${error.message}`);
     }
   } catch (error) {
     console.error("Error in getPropertyDetailsByTxHash:", error);
@@ -241,6 +252,183 @@ async function getPropertyDetailsByTxHash(txHash) {
     };
   }
 }
+
+// async function getPropertyDetailsByTxHash(txHash) {
+//   try {
+//     console.log("Getting property details for transaction:", txHash);
+
+//     // Get transaction receipt
+//     const receipt = await web3Instance.eth.getTransactionReceipt(txHash);
+//     if (!receipt) {
+//       throw new Error("Transaction receipt not found");
+//     }
+
+//     console.log("Transaction receipt:", receipt);
+
+//     // Get the PropertyRegistered event signature
+//     const propertyRegisteredEvent = web3Instance.utils.sha3(
+//       "PropertyRegistered(address,string,string,address)"
+//     );
+
+//     // Get the PropertyTransferred event signature
+//     const propertyTransferredEvent = web3Instance.utils.sha3(
+//       "OwnershipTransferred(address,address,address,uint256)"
+//     );
+
+//     // Find the relevant event log
+//     const eventLog = receipt.logs.find(
+//       (log) =>
+//         log.topics[0] === propertyRegisteredEvent ||
+//         log.topics[0] === propertyTransferredEvent
+//     );
+
+//     if (!eventLog) {
+//       // If no specific event found, try to get property details from the transaction input data
+//       const transaction = await web3Instance.eth.getTransaction(txHash);
+//       console.log("Transaction data:", transaction);
+
+//       if (transaction && transaction.input) {
+//         // Decode the input data
+//         const methodId = transaction.input.slice(0, 10);
+//         const registerPropertyMethodId = web3Instance.utils
+//           .keccak256("registerProperty(string,string,string,string)")
+//           .slice(0, 10);
+//         const transferOwnershipMethodId = web3Instance.utils
+//           .keccak256("transferOwnership(address,address)")
+//           .slice(0, 10);
+
+//         if (
+//           methodId === registerPropertyMethodId ||
+//           methodId === transferOwnershipMethodId
+//         ) {
+//           // Get property details from contract using the to address
+//           try {
+//             const property = await contractInstance.methods
+//               .getProperty(transaction.to)
+//               .call();
+//             return {
+//               blockchainId: transaction.to,
+//               owner: property.owner,
+//               propertyId: property.propertyId,
+//               propertyName: property.propertyName,
+//               location: property.location,
+//               propertyType: property.propertyType,
+//               registrationDate: property.registrationDate,
+//               isVerified: property.isVerified,
+//               transactionHash: txHash,
+//             };
+//           } catch (contractError) {
+//             console.error(
+//               "Failed to get property from contract:",
+//               contractError
+//             );
+//           }
+//         }
+//       }
+
+//       throw new Error(
+//         "Property registration or transfer event not found in transaction"
+//       );
+//     }
+
+//     // Decode the event data based on the event type
+//     let decodedData;
+//     if (eventLog.topics[0] === propertyRegisteredEvent) {
+//       decodedData = web3Instance.eth.abi.decodeLog(
+//         [
+//           {
+//             type: "address",
+//             name: "blockchainId",
+//             indexed: true,
+//           },
+//           {
+//             type: "string",
+//             name: "propertyId",
+//             indexed: false,
+//           },
+//           {
+//             type: "string",
+//             name: "propertyName",
+//             indexed: false,
+//           },
+//           {
+//             type: "address",
+//             name: "owner",
+//             indexed: false,
+//           },
+//         ],
+//         eventLog.data,
+//         [eventLog.topics[1]] // Include indexed parameter
+//       );
+
+//       // Get additional property details from contract
+//       const property = await contractInstance.methods
+//         .getProperty(decodedData.blockchainId)
+//         .call();
+
+//       return {
+//         blockchainId: decodedData.blockchainId,
+//         propertyId: decodedData.propertyId,
+//         propertyName: decodedData.propertyName,
+//         owner: decodedData.owner,
+//         location: property.location,
+//         propertyType: property.propertyType,
+//         registrationDate: property.registrationDate,
+//         isVerified: property.isVerified,
+//         transactionHash: txHash,
+//       };
+//     } else {
+//       // Handle transfer event
+//       decodedData = web3Instance.eth.abi.decodeLog(
+//         [
+//           {
+//             type: "address",
+//             name: "blockchainId",
+//             indexed: true,
+//           },
+//           {
+//             type: "address",
+//             name: "previousOwner",
+//             indexed: true,
+//           },
+//           {
+//             type: "address",
+//             name: "newOwner",
+//             indexed: true,
+//           },
+//           {
+//             type: "uint256",
+//             name: "transferDate",
+//             indexed: false,
+//           },
+//         ],
+//         eventLog.data,
+//         [eventLog.topics[1], eventLog.topics[2], eventLog.topics[3]]
+//       );
+
+//       // Get property details from contract
+//       const property = await contractInstance.methods
+//         .getProperty(decodedData.blockchainId)
+//         .call();
+
+//       return {
+//         blockchainId: decodedData.blockchainId,
+//         previousOwner: decodedData.previousOwner,
+//         newOwner: decodedData.newOwner,
+//         transferDate: decodedData.transferDate,
+//         propertyId: property.propertyId,
+//         propertyName: property.propertyName,
+//         location: property.location,
+//         propertyType: property.propertyType,
+//         isVerified: property.isVerified,
+//         transactionHash: txHash,
+//       };
+//     }
+//   } catch (error) {
+//     console.error("Error in getPropertyDetailsByTxHash:", error);
+//     throw error;
+//   }
+// }
 
 function displayBlockchainData(txHash, propertyData, transactionData, events) {
   const container = document.getElementById("blockchainDataContainer");
@@ -354,8 +542,8 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
         <div class="data-item">
           <div class="data-label">Blockchain ID</div>
           <div class="data-value">
-            ${event.blockchainId}
-            <button class="copy-button" onclick="navigator.clipboard.writeText('${event.blockchainId}')">
+            ${propertyData.blockchainId}
+            <button class="copy-button" onclick="navigator.clipboard.writeText('${propertyData.blockchainId}')">
               Copy
             </button>
           </div>
@@ -467,70 +655,68 @@ document.addEventListener("DOMContentLoaded", async () => {
     verifyButton.textContent = "Verifying...";
 
     try {
-      // Get transaction details first
-      const txData = await web3Instance.eth.getTransaction(searchValue);
-      const txReceipt = await web3Instance.eth.getTransactionReceipt(
-        searchValue
-      );
+      console.log("Starting verification for:", searchValue);
 
       let result;
-      // Check if input is a transaction hash (0x followed by 64 hex characters)
-      if (/^0x[a-fA-F0-9]{64}$/.test(searchValue)) {
+      if (searchValue.startsWith("0x") && searchValue.length === 66) {
         result = await getPropertyDetailsByTxHash(searchValue);
+        console.log("Verification result:", result);
       } else {
-        // Assume it's a blockchain ID
         result = await getPropertyDetails(searchValue);
       }
 
       if (result.success && result.data) {
+        console.log("Successfully retrieved property data:", result.data);
         resultContainer.innerHTML = createVerifiedProperty(result.data);
 
-        // Decode events
-        const events = txReceipt.logs
-          .map((log) => {
-            try {
-              return web3Instance.eth.abi.decodeLog(
-                CONTRACT_ABI.find((x) => x.type === "event").inputs,
-                log.data,
-                log.topics.slice(1)
-              );
-            } catch (e) {
-              return null;
-            }
-          })
-          .filter((x) => x);
+        // Get additional transaction data
+        const txData = await web3Instance.eth.getTransaction(searchValue);
+        const txReceipt = await web3Instance.eth.getTransactionReceipt(
+          searchValue
+        );
 
-        // Display blockchain data
+        // Display blockchain data with proper event handling
         displayBlockchainData(
           searchValue,
           result.data,
-          {
-            ...txData,
-            ...txReceipt,
-          },
-          events
+          { ...txData, ...txReceipt },
+          [result.data] // Pass the property data as an event
         );
       } else {
-        resultContainer.innerHTML = `
-          <div class="verification-message">
-            <img src="./assets/notverified.png" class="verification-icon">
-            <p class="message-text">Property not found. Please check the ID or transaction hash and try again.</p>
-          </div>
-        `;
+        console.error("Property verification failed:", result.error);
+        showNotFound(result.error);
       }
     } catch (error) {
       console.error("Verification error:", error);
-      resultContainer.innerHTML = `
-        <div class="verification-message">
-          <img src="./assets/notverified.png" class="verification-icon">
-          <p class="message-text">Error verifying property: ${error.message}</p>
-        </div>
-      `;
+      showError(error.message);
     } finally {
       verifyButton.disabled = false;
       verifyButton.textContent = "Verify Property";
     }
   };
+
+  // Helper functions for consistent error handling
+  function showError(message) {
+    resultContainer.innerHTML = `
+        <div class="verification-message">
+            <img src="./assets/notverified.png" class="verification-icon">
+            <p class="message-text">Error: ${message}</p>
+        </div>
+    `;
+  }
+
+  function showNotFound(error = "") {
+    resultContainer.innerHTML = `
+      <div class="verification-message">
+        <img src="./assets/notverified.png" class="verification-icon">
+        <p class="message-text">Property not found. ${
+          error
+            ? `Error: ${error}`
+            : "Please check the ID or transaction hash and try again."
+        }</p>
+      </div>
+    `;
+  }
 
   verifyButton.addEventListener("click", handleVerification);
 
