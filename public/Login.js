@@ -1,8 +1,15 @@
-import { setToken, removeToken } from "/auth.js";
+import { setToken, logout, getToken } from "/auth.js";
+import { auth } from "../firebase.js";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  sendEmailVerification,
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
-    const token = localStorage.getItem("token");
+    const token = getToken();
     if (token) {
       const response = await fetch("/checkAuth", {
         headers: { Authorization: `Bearer ${token}` },
@@ -11,25 +18,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       const data = await response.json();
       if (data.authenticated) {
         console.log("User is already logged in, redirecting to dashboard.");
-        window.location.href = "/dashboard.html";
+        window.location.replace("/dashboard.html"); // Using replace instead of href
+        return; // Add return to prevent further execution
       } else {
         console.warn("Token invalid, clearing token.");
-        localStorage.removeItem("token");
+        await logout();
       }
     }
   } catch (error) {
     console.error("Auth check failed:", error);
-    localStorage.removeItem("token");
+    await logout();
   }
 });
-
-import { auth } from "../firebase.js";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile,
-  sendEmailVerification,
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 const loginTab = document.getElementById("loginTab");
 const signupTab = document.getElementById("signupTab");
@@ -83,11 +83,11 @@ document.querySelector(".loginform").addEventListener("submit", async (e) => {
     });
 
     const data = await response.json();
-    console.log("Login response:", data); // Add this
+    console.log("Login response:", data);
 
     if (data.token) {
-      setToken(data.token);
-      console.log("Token stored:", data.token); // Add this line
+      await setToken(data.token);
+      console.log("Token stored:", data.token);
       window.location.href = "./dashboard.html";
     } else {
       throw new Error("No token received from server");
@@ -125,6 +125,10 @@ document.querySelector(".signupform").addEventListener("submit", async (e) => {
     });
 
     await sendEmailVerification(user);
+
+    // Save user to MongoDB after successful signup
+    await saveUserToMongoDB(email, name);
+
     showError(
       "Please check your email to verify your account before logging in."
     );
@@ -137,12 +141,10 @@ document.querySelector(".signupform").addEventListener("submit", async (e) => {
 
 async function saveUserToMongoDB(email, name) {
   try {
-    const token = localStorage.getItem("token");
     const response = await fetch("/users", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ email, name }),
     });

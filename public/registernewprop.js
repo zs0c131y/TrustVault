@@ -485,6 +485,70 @@ function validateForm() {
   let isValid = true;
   let errorMessage = "";
 
+  // Check all required fields
+  const allInputs = document.querySelectorAll('input:not([type="file"])');
+  const allSelects = document.querySelectorAll("select");
+  const allFileInputs = document.querySelectorAll('input[type="file"]');
+
+  // Specifically check appointment details
+  const registrarOffice = document.getElementById("Choose");
+  const appointmentDateTime = document.getElementById("date");
+
+  // Validate appointment details first
+  if (
+    !registrarOffice ||
+    registrarOffice.value === "" ||
+    registrarOffice.value === "register"
+  ) {
+    isValid = false;
+    errorMessage = "Please select a Sub-Registrar Office";
+    alert(errorMessage);
+    return false;
+  }
+
+  if (
+    !appointmentDateTime ||
+    appointmentDateTime.value === "" ||
+    appointmentDateTime.value === "date"
+  ) {
+    isValid = false;
+    errorMessage = "Please select Date and Time for appointment";
+    alert(errorMessage);
+    return false;
+  }
+
+  // Validate all input fields are filled
+  allInputs.forEach((input) => {
+    if (input.value.trim() === "") {
+      isValid = false;
+      errorMessage = `${input.placeholder || "All fields"} is required`;
+    }
+  });
+
+  // Validate all select fields are chosen
+  allSelects.forEach((select) => {
+    if (select.value === "") {
+      isValid = false;
+      errorMessage = `Please select ${select.id || "all dropdown fields"}`;
+    }
+  });
+
+  // Validate all file inputs have files
+  allFileInputs.forEach((fileInput) => {
+    if (!fileInput.files || fileInput.files.length === 0) {
+      isValid = false;
+      const documentLabel = fileInput.previousElementSibling.textContent
+        .trim()
+        .split("\n")[0];
+      errorMessage = `Please upload ${documentLabel}`;
+    }
+  });
+
+  if (!isValid) {
+    alert(errorMessage);
+    return false;
+  }
+
   // Validate phone numbers
   phoneInputs.forEach((input) => {
     if (!validations.phone.regex.test(input.value)) {
@@ -537,7 +601,17 @@ function validateIdNumber(value) {
     };
   }
 
+  // For PAN, ensure it's in uppercase and follows the exact format
   const upperValue = cleanValue.toUpperCase();
+  if (upperValue !== cleanValue) {
+    return {
+      type: "pan",
+      isValid: false,
+      value: upperValue,
+      message: "PAN number must be in UPPERCASE (Format: ABCDE1234F)",
+    };
+  }
+
   return {
     type: "pan",
     isValid: validations.pan.regex.test(upperValue),
@@ -911,19 +985,26 @@ function setupFormElements() {
   });
 
   // Setup address copy functionality
-  addressNotes.forEach((note, index) => {
-    note.style.cursor = "pointer";
-    note.addEventListener("click", () => {
-      const permanentAddress =
-        permanentAddressInputs[Math.floor(index / 2)].value;
-      const currentAddressInput = currentAddressInputs[Math.floor(index / 2)];
+  permanentAddressInputs.forEach((permanentInput, index) => {
+    const currentInput = currentAddressInputs[index];
+    const noteElement = addressNotes[index];
 
-      if (permanentAddress) {
-        currentAddressInput.value = permanentAddress;
-      } else {
-        alert("Please fill in the permanent address first");
-      }
-    });
+    if (
+      noteElement &&
+      currentInput &&
+      noteElement.textContent.includes(
+        "Current Address is same as permanent address?"
+      )
+    ) {
+      noteElement.style.cursor = "pointer";
+      noteElement.addEventListener("click", () => {
+        if (permanentInput.value.trim()) {
+          currentInput.value = permanentInput.value;
+        } else {
+          alert("Please fill in the permanent address first");
+        }
+      });
+    }
   });
 
   // Setup form submission
@@ -1225,6 +1306,32 @@ function setupEventListeners() {
     if (propertyId.length >= 6) {
       fetchPropertyDetails(propertyId);
     }
+  });
+
+  // Setup PAN input handling
+  const panInputs = document.querySelectorAll(
+    'input[placeholder="Aadhar / PAN Number"]'
+  );
+  panInputs.forEach((input) => {
+    input.addEventListener("input", function (e) {
+      const value = e.target.value;
+      // Check if the input matches PAN format (or starting to)
+      if (/^[A-Za-z0-9]*$/.test(value)) {
+        // Convert to uppercase and update the input
+        const upperValue = value.toUpperCase();
+        e.target.value = upperValue;
+
+        // Optional: Add visual feedback if it matches complete PAN format
+        if (validations.pan.regex.test(upperValue)) {
+          input.style.borderColor = "#4CAF50"; // Green for valid
+        } else {
+          input.style.borderColor = ""; // Reset to default
+        }
+      } else {
+        // If invalid characters are entered, remove them
+        e.target.value = value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      }
+    });
   });
 
   // Date validation

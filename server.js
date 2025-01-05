@@ -213,22 +213,52 @@ const upload = multer({
 });
 
 // JWT Token Verification Middleware
-const verifyToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(" ")[1];
-
-  if (!token) {
-    return res.status(401).json({ error: "Access denied. No token provided." });
-  }
-
+const enhancedVerifyToken = async (req, res, next) => {
   try {
-    const verified = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = verified;
+    const token = req.headers.authorization?.split(" ")[1];
+    const deviceId = req.headers["x-device-id"];
+
+    if (!token) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+
+    // Check if token is invalidated
+    const invalidated = await db
+      .collection("invalidatedTokens")
+      .findOne({ token });
+    if (invalidated) {
+      return res.status(401).json({ error: "Token has been invalidated" });
+    }
+
+    // Verify JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (deviceId) {
+      // Verify device session if device ID is provided
+      const session = await db.collection("deviceSessions").findOne({
+        userId: decoded.email,
+        "deviceInfo.deviceId": deviceId,
+      });
+
+      if (!session) {
+        return res.status(401).json({ error: "Invalid device session" });
+      }
+
+      // Update last active timestamp
+      await db
+        .collection("deviceSessions")
+        .updateOne({ _id: session._id }, { $set: { lastActive: new Date() } });
+    }
+
+    req.user = decoded;
     next();
   } catch (error) {
-    console.error("Invalid token:", error.message);
+    console.error("Token verification error:", error);
     res.status(401).json({ error: "Invalid token" });
   }
 };
+
+app.use("/api", enhancedVerifyToken);
 
 // Input Sanitization Middleware
 const sanitizeInput = (req, res, next) => {
@@ -290,7 +320,7 @@ app.post("/login", async (req, res) => {
   }
 });
 
-app.post("/logout", verifyToken, async (req, res) => {
+app.post("/logout", enhancedVerifyToken, async (req, res) => {
   try {
     // Optional: Add token to blacklist in database
     try {
@@ -339,7 +369,7 @@ app.get("/checkAuth", (req, res) => {
   }
 });
 
-app.get("/getUserData", verifyToken, async (req, res) => {
+app.get("/getUserData", enhancedVerifyToken, async (req, res) => {
   try {
     const db = client.db(dbName);
     const users = db.collection("users");
@@ -361,7 +391,7 @@ app.get("/getUserData", verifyToken, async (req, res) => {
 
 app.post(
   "/api/register-property",
-  verifyToken,
+  enhancedVerifyToken,
   sanitizeInput,
   upload.fields([
     { name: "saleDeed", maxCount: 1 },
@@ -438,7 +468,7 @@ app.post(
 
 app.post(
   "/api/transfer-property",
-  verifyToken,
+  enhancedVerifyToken,
   sanitizeInput,
   upload.fields([
     { name: "saleDeed", maxCount: 1 },
@@ -684,32 +714,28 @@ app.get("/api/registrations/:propertyId", async (req, res) => {
   }
 });
 
+// Property search route
 app.get("/api/property/search", express.json(), async (req, res) => {
   try {
-    const { mainSearch, area, propertyId } = req.query;
+    const { mainSearch, city, propertyId } = req.query;
 
-    // Build the query object using $or for flexible searching
+    // Build the query object
     let query = {};
     const searchConditions = [];
 
     if (mainSearch) {
-      searchConditions.push(
-        { property_name: new RegExp(mainSearch, "i") },
-        { city: new RegExp(mainSearch, "i") },
-        { type_of_property: new RegExp(mainSearch, "i") },
-        { pid: new RegExp(mainSearch, "i") }
-      );
+      searchConditions.push({ property_name: new RegExp(mainSearch, "i") });
     }
 
-    if (area) {
-      searchConditions.push({ city: new RegExp(area, "i") });
+    if (city) {
+      searchConditions.push({ city: new RegExp(city, "i") });
     }
 
     if (propertyId) {
       searchConditions.push({ pid: new RegExp(propertyId, "i") });
     }
 
-    // Only add $or if there are search conditions
+    // Add $or operator if there are search conditions
     if (searchConditions.length > 0) {
       query.$or = searchConditions;
     }
@@ -724,7 +750,6 @@ app.get("/api/property/search", express.json(), async (req, res) => {
 
     console.log(`Found ${properties.length} properties`);
 
-    // Return empty array if no properties found
     res.json({
       properties: properties || [],
       count: properties.length,
@@ -733,7 +758,8 @@ app.get("/api/property/search", express.json(), async (req, res) => {
     console.error("Property search error:", error);
     res.status(500).json({
       error: "Failed to search properties",
-      details: error.message,
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
@@ -794,11 +820,115 @@ app.post("/users", sanitizeInput, async (req, res) => {
   }
 });
 
-// Get property blockchain value
-// Add database middleware
-app.use((req, res, next) => {
-  req.db = db;
-  next();
+// Token sync endpoint
+app.post("/api/auth/sync", enhancedVerifyToken, async (req, res) => {
+  try {
+    const { deviceInfo } = req.body;
+    const token = req.headers.authorization?.split(" ")[1];
+
+    await db.collection("deviceSessions").updateOne(
+      {
+        userId: req.user.email,
+        deviceId: deviceInfo.deviceId,
+      },
+      {
+        $set: {
+          token,
+          deviceInfo,
+          lastActive: new Date(),
+          lastSync: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+
+    res.json({ message: "Token synced successfully" });
+  } catch (error) {
+    console.error("Token sync error:", error);
+    res.status(500).json({ error: "Failed to sync token" });
+  }
+});
+
+// Token refresh endpoint
+app.post("/api/auth/refresh", enhancedVerifyToken, async (req, res) => {
+  try {
+    const oldToken = req.headers.authorization?.split(" ")[1];
+    const { deviceInfo } = req.body;
+
+    // Check device session
+    const session = await db.collection("deviceSessions").findOne({
+      userId: req.user.email,
+      "deviceInfo.deviceId": deviceInfo.deviceId,
+    });
+
+    if (!session) {
+      return res.status(401).json({ error: "Invalid device session" });
+    }
+
+    // Generate new token
+    const newToken = jwt.sign(
+      {
+        email: req.user.email,
+        name: req.user.name,
+        firebaseUID: req.user.firebaseUID,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    // Update device session
+    await db.collection("deviceSessions").updateOne(
+      { _id: session._id },
+      {
+        $set: {
+          token: newToken,
+          lastActive: new Date(),
+          lastRefresh: new Date(),
+        },
+      }
+    );
+
+    // Store old token as invalid
+    await db.collection("invalidatedTokens").insertOne({
+      token: oldToken,
+      userId: req.user.email,
+      invalidatedAt: new Date(),
+      reason: "refresh",
+    });
+
+    res.json({ token: newToken });
+  } catch (error) {
+    console.error("Token refresh error:", error);
+    res.status(500).json({ error: "Failed to refresh token" });
+  }
+});
+
+// Token invalidation endpoint
+app.post("/api/auth/invalidate", enhancedVerifyToken, async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const { deviceId } = req.body;
+
+    // Remove device session
+    await db.collection("deviceSessions").deleteOne({
+      userId: req.user.email,
+      "deviceInfo.deviceId": deviceId,
+    });
+
+    // Store in invalidated tokens
+    await db.collection("invalidatedTokens").insertOne({
+      token,
+      userId: req.user.email,
+      deviceId,
+      invalidatedAt: new Date(),
+      reason: "logout",
+    });
+
+    res.json({ message: "Token invalidated successfully" });
+  } catch (error) {
+    console.error("Token invalidation error:", error);
+    res.status(500).json({ error: "Failed to invalidate token" });
+  }
 });
 
 // Error Handling Middleware

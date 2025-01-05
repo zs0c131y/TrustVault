@@ -1,5 +1,11 @@
 import { auth } from "../firebase.js";
-import { getToken, removeToken, getAuthHeaders } from "./auth.js";
+import {
+  isAuthenticated,
+  setToken,
+  getToken,
+  logout as removeToken,
+  getAuthHeaders,
+} from "./auth.js";
 
 // Define handleCardClick in the global scope
 window.handleCardClick = function (service) {
@@ -15,15 +21,11 @@ window.handleCardClick = function (service) {
   }
 };
 
-// Your existing functions remain the same
 async function checkAuth() {
   try {
     const token = getToken();
-    console.log("Checking auth with token:", !!token);
-
     if (!token) {
-      console.log("No token found, redirecting to login");
-      window.location.href = "/login.html";
+      window.location.href = "./Login.html";
       return false;
     }
 
@@ -37,9 +39,8 @@ async function checkAuth() {
     const data = await response.json();
 
     if (!data.authenticated) {
-      console.log("Token invalid, redirecting to login");
       removeToken();
-      window.location.href = "/login.html";
+      window.location.href = "./Login.html";
       return false;
     }
 
@@ -47,7 +48,7 @@ async function checkAuth() {
   } catch (error) {
     console.error("Auth check failed:", error);
     removeToken();
-    window.location.href = "/login.html";
+    window.location.href = "./Login.html";
     return false;
   }
 }
@@ -78,22 +79,29 @@ async function getUserName() {
   }
 }
 
+// Function to get greeting based on time
+function getTimeBasedGreeting() {
+  const hour = new Date().getHours();
+  if (hour >= 12 && hour < 17) return "Good Afternoon";
+  if (hour >= 17) return "Good Evening";
+  return "Good Morning";
+}
+
+// Initialize greeting immediately with a placeholder
+function initializeGreeting() {
+  const greetingElement = document.querySelector("h1");
+  if (greetingElement) {
+    greetingElement.textContent = `${getTimeBasedGreeting()}, User`;
+  }
+}
+
+// Update greeting once user data is fetched
 async function updateGreeting() {
   try {
-    const hour = new Date().getHours();
-    let timeOfDay = "Good Morning";
-
-    if (hour >= 12 && hour < 17) {
-      timeOfDay = "Good Afternoon";
-    } else if (hour >= 17) {
-      timeOfDay = "Good Evening";
-    }
-
     const userName = await getUserName();
     const greetingElement = document.querySelector("h1");
-
     if (greetingElement) {
-      greetingElement.textContent = `${timeOfDay}, ${userName}`;
+      greetingElement.textContent = `${getTimeBasedGreeting()}, ${userName}`;
     }
   } catch (error) {
     console.error("Error updating greeting:", error);
@@ -101,13 +109,32 @@ async function updateGreeting() {
 }
 
 async function initializeDashboard() {
-  console.log("Initializing dashboard...");
-  const isAuthenticated = await checkAuth();
-  console.log("Authentication check result:", isAuthenticated);
+  if (window.isAuthenticating) return;
+  window.isAuthenticating = true;
 
-  if (isAuthenticated) {
-    await updateGreeting();
+  try {
+    // Set initial greeting immediately
+    initializeGreeting();
+
+    // Check authentication
+    const isAuthed = await checkAuth();
+    if (isAuthed) {
+      // Update with actual user name
+      await updateGreeting();
+    }
+  } finally {
+    window.isAuthenticating = false;
   }
 }
 
+// Initialize dashboard when DOM is loaded
 document.addEventListener("DOMContentLoaded", initializeDashboard);
+
+// Add event listener for visibility change
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    checkAuth();
+  }
+});
+
+export { checkAuth };

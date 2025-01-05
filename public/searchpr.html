@@ -1,72 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Search Results</title>
-    <link rel="stylesheet" href="./searchpr.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Questrial&display=swap" rel="stylesheet">
-</head>
-<body>
+    <link rel="stylesheet" href="./searchpr.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Questrial&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
     <header class="header">
-        <div class="back-button" id="backButton">
-            <span>&lt;</span>
-        </div>
-        <h1>Search Property Records</h1>
-        <div class="user-icon">
-            <a href="./profile.html">
-                <img src="./assets/user.png" alt="User Icon"></a>
-        </div>
+      <div class="back-button" id="backButton">
+        <span>&lt;</span>
+      </div>
+      <h1>Search Results</h1>
+      <div class="user-icon">
+        <a href="./profile.html">
+          <img src="./assets/user.png" alt="User Icon"
+        /></a>
+      </div>
     </header>
 
     <main>
-        <section class="search-container">
-            <div class="search-input-wrapper">
-                <img src="./assets/search-icon.png" alt="Search Icon" class="search-icon">
-                <input type="text" placeholder="Search Properties" class="search-input">
-            </div>
-        </section>
+      <section class="search-container">
+        <div class="search-input-wrapper">
+          <img
+            src="./assets/search-icon.png"
+            alt="Search Icon"
+            class="search-icon"
+          />
+          <input
+            type="text"
+            placeholder="Search Properties"
+            class="search-input"
+          />
+        </div>
+      </section>
 
-        <section class="results">
-            <a href="./pdetail.html" class="card-link">
-                <div class="card">
-                    <img src="./assets/defaultlandimage.png" alt="Sobha Elite Platinum">
-                    <h3>Sobha Elite Platinum</h3>
-                    <p>Condominium complex<br>Turner Rd, Bengaluru, Karnataka 560057, India</p>
-                </div>
-            </a>
-
-            <a href="./pdetail.html" class="card-link">
-                <div class="card">
-                    <img src="./assets/defaultlandimage.png" alt="Sobha Ruby Platinum">
-                    <h3>Sobha Ruby Platinum</h3>
-                    <p>Condominium complex<br>Turahalli Forest Area, Bengaluru, Karnataka, India</p>
-                </div>
-            </a>
-
-            <a href="./pdetail.html" class="card-link">
-                <div class="card">
-                    <img src="./assets/defaultlandimage.png" alt="Sobha Oakshire">
-                    <h3>Sobha Oakshire</h3>
-                    <p>Private villas<br>Hoskote, Bengaluru, Karnataka 560112, India</p>
-                </div>
-            </a>
-
-            <a href="./pdetail.html" class="card-link">
-                <div class="card">
-                    <img src="./assets/defaultlandimage.png" alt="Sobha Palm Court">
-                    <h3>Sobha Palm Court</h3>
-                    <p>Condominium complex<br>Jakkur, Bengaluru, Karnataka, India</p>
-                </div>
-            </a>
-        </section>
+      <section class="results">
+        <!-- Results will be dynamically populated by JavaScript -->
+      </section>
     </main>
-    <script>
-        document.getElementById("backButton").addEventListener("click", () => {
-            history.back(); // Navigates to the previous page
-        });
-    </script>
-</body>
+
+    <script src="./searchpr.js"></script>
+  </body>
 </html>
