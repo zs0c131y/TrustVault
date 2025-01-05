@@ -130,6 +130,30 @@ async function checkNetwork(web3) {
   }
 }
 
+// Set Date Restrictions
+function setupDateRestrictions() {
+  const dateInput = document.getElementById("date");
+  if (dateInput) {
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split("T")[0];
+
+    // Set max attribute to today
+    dateInput.setAttribute("max", today);
+
+    // Add event listener to prevent future date selection
+    dateInput.addEventListener("input", function (e) {
+      const selectedDate = new Date(this.value);
+      const currentDate = new Date();
+
+      // Reset to today if future date is selected
+      if (selectedDate > currentDate) {
+        this.value = today;
+        alert("Future dates cannot be selected");
+      }
+    });
+  }
+}
+
 // Debugs
 async function debugContractMethods() {
   try {
@@ -188,22 +212,20 @@ async function debugContractMethods() {
 // Debug function to verify property and contract state
 async function debugPropertyTransfer(propertyId) {
   try {
-    console.log("Starting property transfer debug...");
+    console.log("Starting property transfer debug for property:", propertyId);
 
     // Check web3 and contract initialization
     console.log("Web3 initialized:", !!web3Instance);
     console.log("Contract initialized:", !!contractInstance);
     console.log("Contract address:", contractInstance?.options?.address);
 
-    // Check network
+    // Rest of the debug function remains the same
     const networkId = await web3Instance.eth.net.getId();
     console.log("Current network ID:", networkId);
 
-    // Check account
     const accounts = await web3Instance.eth.getAccounts();
     console.log("Current account:", accounts[0]);
 
-    // Check account balance
     const balance = await web3Instance.eth.getBalance(accounts[0]);
     console.log(
       "Account balance:",
@@ -223,19 +245,16 @@ async function debugPropertyTransfer(propertyId) {
         ? data.propertyInfo.blockchainId
         : `0x${data.propertyInfo.blockchainId}`;
 
-      // Check if address is valid
       console.log(
         "Is valid address:",
         web3Instance.utils.isAddress(blockchainAddress)
       );
 
-      // Check contract code at address
       const code = await web3Instance.eth.getCode(
         contractInstance.options.address
       );
       console.log("Contract deployed:", code !== "0x");
 
-      // Try to get property info
       try {
         const propertyInfo = await contractInstance.methods
           .getProperty(blockchainAddress)
@@ -548,79 +567,162 @@ const validations = {
   },
 };
 
+// Function to validate ID numbers (Aadhaar/PAN)
+function validateIdNumber(value) {
+  // Remove any spaces or special characters
+  const cleanValue = value.replace(/[^A-Za-z0-9]/g, "");
+
+  // Check if it's a PAN number (10 characters, specific format)
+  if (cleanValue.length === 10) {
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+    return {
+      isValid: panRegex.test(cleanValue.toUpperCase()),
+      message: panRegex.test(cleanValue.toUpperCase())
+        ? ""
+        : "Invalid PAN number format. Format should be ABCDE1234F",
+    };
+  }
+
+  // Check if it's an Aadhaar number (12 digits)
+  if (cleanValue.length === 12) {
+    const aadhaarRegex = /^[2-9]\d{11}$/;
+    return {
+      isValid: aadhaarRegex.test(cleanValue),
+      message: aadhaarRegex.test(cleanValue)
+        ? ""
+        : "Invalid Aadhaar number format. Should be 12 digits starting with 2-9",
+    };
+  }
+
+  // If neither length matches
+  return {
+    isValid: false,
+    message:
+      "ID number should be either a 12-digit Aadhaar or 10-character PAN",
+  };
+}
+
 // Form validation function
 function validateForm() {
+  const form = document.getElementById("propertyForm");
+  const allInputs = form.querySelectorAll('input:not([type="file"])');
+  const allSelects = form.querySelectorAll("select");
+  const allFileInputs = form.querySelectorAll('input[type="file"]');
+  const registrarOffice = document.getElementById("Choose");
+  const appointmentDateTime = document.getElementById("date");
+
   let isValid = true;
   let errorMessage = "";
 
-  // Validate phone numbers
-  document.querySelectorAll('input[type="tel"]').forEach((input) => {
-    if (!validations.phone.regex.test(input.value)) {
+  // First check appointment details
+  if (
+    !registrarOffice ||
+    registrarOffice.value === "" ||
+    registrarOffice.value === "register"
+  ) {
+    isValid = false;
+    errorMessage = "Please select a Sub-Registrar Office";
+    alert(errorMessage);
+    return false;
+  }
+
+  if (
+    !appointmentDateTime ||
+    appointmentDateTime.value === "" ||
+    appointmentDateTime.value === "date"
+  ) {
+    isValid = false;
+    errorMessage = "Please select appointment date and time";
+    alert(errorMessage);
+    return false;
+  }
+
+  // Check all other required fields
+  allInputs.forEach((input) => {
+    if (input.value.trim() === "") {
+      isValid = false;
+      errorMessage = `${input.placeholder || "All fields"} is required`;
+    }
+  });
+
+  allSelects.forEach((select) => {
+    if (select.value === "") {
+      isValid = false;
+      errorMessage = `Please select ${select.id || "all required fields"}`;
+    }
+  });
+
+  allFileInputs.forEach((fileInput) => {
+    if (!fileInput.files || fileInput.files.length === 0) {
+      isValid = false;
+      const documentLabel = fileInput.previousElementSibling.textContent
+        .trim()
+        .split("\n")[0];
+      errorMessage = `Please upload ${documentLabel}`;
+    }
+  });
+
+  if (!isValid) {
+    alert(errorMessage);
+    return false;
+  }
+
+  // Only validate format for completed fields
+  const phoneInputs = document.querySelectorAll('input[type="tel"]');
+  const emailInputs = document.querySelectorAll('input[type="email"]');
+  const idInputs = document.querySelectorAll(
+    'input[placeholder="Aadhar / PAN Number"]'
+  );
+  const ethereumAddress = document.querySelector(
+    'input[name="newOwner_ethAddress"]'
+  );
+
+  // Validate phone only if complete (10 digits)
+  phoneInputs.forEach((input) => {
+    if (
+      input.value.length >= 10 &&
+      !validations.phone.regex.test(input.value)
+    ) {
       isValid = false;
       errorMessage = validations.phone.message;
     }
   });
 
-  // Validate emails
-  document.querySelectorAll('input[type="email"]').forEach((input) => {
-    if (!validations.email.regex.test(input.value)) {
+  // Validate email only if it includes @
+  emailInputs.forEach((input) => {
+    if (
+      input.value.includes("@") &&
+      !validations.email.regex.test(input.value)
+    ) {
       isValid = false;
       errorMessage = validations.email.message;
     }
   });
 
-  // Validate ID numbers (Aadhaar/PAN)
-  document
-    .querySelectorAll('input[placeholder="Aadhar / PAN Number"]')
-    .forEach((input) => {
-      const value = input.value.replace(/\s/g, "");
-      if (value.length === 12) {
-        if (!validations.aadhaar.regex.test(value)) {
-          isValid = false;
-          errorMessage = validations.aadhaar.message;
-        }
-      } else {
-        if (!validations.pan.regex.test(value.toUpperCase())) {
-          isValid = false;
-          errorMessage = validations.pan.message;
-        }
-      }
-    });
+  // Validate ID numbers only if complete
+  idInputs.forEach((input) => {
+    const value = input.value.trim();
+    if (
+      (value.length === 12 || value.length === 10) &&
+      !validateIdNumber(value).isValid
+    ) {
+      isValid = false;
+      errorMessage = validateIdNumber(value).message;
+    }
+  });
 
-  // Validate Ethereum address
-  const ethAddressInput = document.querySelector(
-    'input[name="newOwner_ethAddress"]'
-  );
-  if (
-    ethAddressInput &&
-    !validations.ethereum.regex.test(ethAddressInput.value)
-  ) {
-    isValid = false;
-    errorMessage = validations.ethereum.message;
-  }
-
-  // Validate dates
-  const transactionDate = document.querySelector('input[type="date"]').value;
-  const selectedDate = new Date(transactionDate);
-  const currentDate = new Date();
-
-  selectedDate.setHours(0, 0, 0, 0);
-  currentDate.setHours(0, 0, 0, 0);
-
-  if (selectedDate > currentDate) {
-    isValid = false;
-    errorMessage = "Transaction date cannot be in the future";
-  }
-
-  // Validate required fields
-  document
-    .querySelectorAll("input[required], select[required]")
-    .forEach((input) => {
-      if (!input.value.trim()) {
+  // Validate ethereum address
+  if (ethereumAddress && ethereumAddress.value) {
+    try {
+      if (!web3Instance.utils.isAddress(ethereumAddress.value)) {
         isValid = false;
-        errorMessage = "Please fill in all required fields";
+        errorMessage = "Please enter a valid Ethereum address";
       }
-    });
+    } catch (error) {
+      isValid = false;
+      errorMessage = "Invalid Ethereum address format";
+    }
+  }
 
   if (!isValid) {
     alert(errorMessage);
@@ -630,57 +732,96 @@ function validateForm() {
 
 // Setup form validation event listeners
 function setupValidation() {
-  // Phone number validation
+  // Phone number validation - only on blur
   document.querySelectorAll('input[type="tel"]').forEach((input) => {
+    input.addEventListener("blur", function () {
+      if (this.value.length >= 10) {
+        const isValid = validations.phone.regex.test(this.value);
+        this.setCustomValidity(isValid ? "" : validations.phone.message);
+      } else {
+        this.setCustomValidity("");
+      }
+    });
+
     input.addEventListener("input", function () {
-      const isValid = validations.phone.regex.test(this.value);
-      this.setCustomValidity(isValid ? "" : validations.phone.message);
-      this.reportValidity();
+      this.setCustomValidity("");
     });
   });
 
-  // Email validation
+  // Email validation - only on blur
   document.querySelectorAll('input[type="email"]').forEach((input) => {
+    input.addEventListener("blur", function () {
+      if (this.value.includes("@")) {
+        const isValid = validations.email.regex.test(this.value);
+        this.setCustomValidity(isValid ? "" : validations.email.message);
+      } else {
+        this.setCustomValidity("");
+      }
+    });
+
     input.addEventListener("input", function () {
-      const isValid = validations.email.regex.test(this.value);
-      this.setCustomValidity(isValid ? "" : validations.email.message);
-      this.reportValidity();
+      this.setCustomValidity("");
     });
   });
 
-  // ID number validation
+  // ID number validation (Aadhaar/PAN)
   document
     .querySelectorAll('input[placeholder="Aadhar / PAN Number"]')
     .forEach((input) => {
-      input.addEventListener("input", function () {
-        const value = this.value.replace(/\s/g, "");
-        let isValid = false;
-        let message = "";
+      // Input event for real-time handling
+      input.addEventListener("input", function (e) {
+        let value = this.value.replace(/[^A-Za-z0-9]/g, ""); // Remove any non-alphanumeric characters
 
-        if (value.length === 12) {
-          isValid = validations.aadhaar.regex.test(value);
-          message = validations.aadhaar.message;
+        // If length suggests it's a PAN (10 characters), force uppercase
+        if (value.length <= 10) {
+          // Convert to uppercase while typing
+          this.value = value.toUpperCase();
         } else {
-          const upperValue = value.toUpperCase();
-          this.value = upperValue;
-          isValid = validations.pan.regex.test(upperValue);
-          message = validations.pan.message;
+          // If it's longer (Aadhaar), just keep numbers
+          this.value = value.replace(/[^0-9]/g, "");
         }
 
-        this.setCustomValidity(isValid ? "" : message);
-        this.reportValidity();
+        this.setCustomValidity(""); // Clear validation while typing
+      });
+
+      // Blur event for validation
+      input.addEventListener("blur", function () {
+        const value = this.value.replace(/\s/g, "");
+        if (value.length >= 10) {
+          let isValid = false;
+          let message = "";
+
+          if (value.length === 12) {
+            isValid = validations.aadhaar.regex.test(value);
+            message = validations.aadhaar.message;
+          } else if (value.length === 10) {
+            isValid = validations.pan.regex.test(value);
+            message = validations.pan.message;
+          }
+
+          this.setCustomValidity(isValid ? "" : message);
+        } else {
+          this.setCustomValidity("");
+        }
       });
     });
 
-  // Ethereum address validation
+  // Ethereum address validation - only on blur
   const ethAddressInput = document.querySelector(
     'input[name="newOwner_ethAddress"]'
   );
   if (ethAddressInput) {
+    ethAddressInput.addEventListener("blur", function () {
+      if (this.value.trim()) {
+        const isValid = validations.ethereum.regex.test(this.value);
+        this.setCustomValidity(isValid ? "" : validations.ethereum.message);
+      } else {
+        this.setCustomValidity("");
+      }
+    });
+
     ethAddressInput.addEventListener("input", function () {
-      const isValid = validations.ethereum.regex.test(this.value);
-      this.setCustomValidity(isValid ? "" : validations.ethereum.message);
-      this.reportValidity();
+      this.setCustomValidity("");
     });
   }
 }
@@ -688,15 +829,28 @@ function setupValidation() {
 // India Post API integration
 async function getLocationFromPincode(pincode) {
   try {
+    console.log("Fetching location data for pincode:", pincode);
     const response = await fetch(
       `https://api.postalpincode.in/pincode/${pincode}`
     );
     const data = await response.json();
 
-    if (data && data[0] && data[0].Status === "Success" && data[0].PostOffice) {
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      console.error("Invalid response format from postal API");
+      return { success: false, error: "Invalid response from postal service" };
+    }
+
+    const result = data[0];
+    console.log("Postal API response:", result);
+
+    if (
+      result.Status === "Success" &&
+      Array.isArray(result.PostOffice) &&
+      result.PostOffice.length > 0
+    ) {
       return {
         success: true,
-        postOffices: data[0].PostOffice.map((po) => ({
+        postOffices: result.PostOffice.map((po) => ({
           locality: po.Name,
           city: po.District,
           state: po.State,
@@ -706,10 +860,14 @@ async function getLocationFromPincode(pincode) {
         })),
       };
     }
-    return { success: false, error: "No data found" };
+
+    return {
+      success: false,
+      error: result.Message || "No data found for this pincode",
+    };
   } catch (error) {
     console.error("Error fetching location data:", error);
-    return { success: false, error: error.message };
+    return { success: false, error: "Failed to fetch location data" };
   }
 }
 
@@ -741,6 +899,7 @@ function setupSameAddressButtons() {
 // Property data fetch and autofill
 async function fetchPropertyDetails(propertyId) {
   try {
+    console.log("Fetching details for property:", propertyId);
     const response = await fetch(`/api/property/${propertyId}`, {
       headers: getAuthHeaders(),
     });
@@ -750,73 +909,90 @@ async function fetchPropertyDetails(propertyId) {
     }
 
     const data = await response.json();
-    console.log("Property data fetched:", data);
+    console.log("Property data received:", data);
 
-    // Autofill form fields
-    const mappings = {
+    // Map all fields that need to be filled
+    const fieldMappings = {
       "Property ID": propertyId,
-      "Plot / Flat Number": data.plotNumber,
-      Street: data.street,
-      Locality: data.locality,
-      City: data.city,
-      State: data.state,
-      Pincode: data.pincode,
-      "Land Area": data.landArea,
-      "Built-up Area": data.builtUpArea,
-      "Property Classification": data.classification,
+      "Plot / Flat Number":
+        data.plotNumber || data.propertyDetails?.plotNumber || "",
+      Street: data.street || data.propertyDetails?.street || "",
+      Locality: data.locality || data.propertyDetails?.locality || "",
+      City: data.city || "",
+      State: data.state || "",
+      Pincode: data.pin_code || "",
+      "Land Area": data.land_area || "",
+      "Built-up Area": data.built_up_area || "",
+      "Property Classification": data.property_classification || "",
     };
 
-    // Fill in the form fields
-    Object.entries(mappings).forEach(([placeholder, value]) => {
+    // Fill in all the mapped fields
+    for (const [placeholder, value] of Object.entries(fieldMappings)) {
       const input = document.querySelector(
         `input[placeholder="${placeholder}"]`
       );
       if (input && value) {
+        console.log(`Setting ${placeholder} to ${value}`);
         input.value = value;
+
+        // If this is the pincode field and it has a value, trigger the lookup
+        if (placeholder === "Pincode" && value) {
+          const stateInput = document.querySelector(
+            'input[placeholder="State"]'
+          );
+          const cityInput = document.querySelector('input[placeholder="City"]');
+          const localityInput = document.querySelector(
+            'input[placeholder="Locality"]'
+          );
+
+          const inputs = {
+            pincodeInput: input,
+            stateInput,
+            cityInput,
+            localityInput,
+            currentDropdown: null,
+          };
+
+          // Wait a brief moment for the UI to update
+          setTimeout(() => {
+            handlePincodeLookup(value, true, inputs);
+          }, 100);
+        }
       }
-    });
+    }
 
     // Handle property type selection
-    const propertyTypeSelect = document.getElementById("propertyType");
-    if (data.propertyType && propertyTypeSelect) {
-      propertyTypeSelect.value = data.propertyType.toLowerCase();
-      propertyTypeSelect.disabled = true;
+    const propertyType = data.type_of_property;
+    if (propertyType) {
+      const propertyTypeSelect = document.getElementById("propertyType");
+      if (propertyTypeSelect) {
+        // Convert to lowercase and remove spaces for comparison
+        const normalizedPropertyType = propertyType
+          .toLowerCase()
+          .replace(/\s+/g, "");
+
+        Array.from(propertyTypeSelect.options).forEach((option) => {
+          const normalizedOption = option.value
+            .toLowerCase()
+            .replace(/\s+/g, "");
+          if (normalizedOption === normalizedPropertyType) {
+            propertyTypeSelect.value = option.value;
+            propertyTypeSelect.disabled = true;
+            propertyTypeSelect.style.opacity = "0.8";
+            propertyTypeSelect.style.cursor = "not-allowed";
+          }
+        });
+      }
     }
 
-    // Handle current owner information if available
-    if (data.currentOwner) {
-      const ownerMappings = {
-        "First Name": data.currentOwner.firstName,
-        "Last Name": data.currentOwner.lastName,
-        "Email Address": data.currentOwner.email,
-        "Phone Number": data.currentOwner.phone,
-        "Aadhar / PAN Number": data.currentOwner.idNumber,
-        "Permanent Address": data.currentOwner.permanentAddress,
-        "Current Address": data.currentOwner.currentAddress,
-      };
+    // Log what was filled
+    console.log("Fields populated:", fieldMappings);
 
-      // Fill in current owner details
-      Object.entries(ownerMappings).forEach(([placeholder, value]) => {
-        const input = document.querySelector(
-          `section:first-of-type input[placeholder="${placeholder}"]`
-        );
-        if (input && value) {
-          input.value = value;
-          input.readOnly = true;
-        }
-      });
-    }
-
-    // Trigger pincode lookup if pincode is available
-    const pincodeInput = document.querySelector('input[placeholder="Pincode"]');
-    if (pincodeInput && data.pincode) {
-      pincodeInput.value = data.pincode;
-      const event = new Event("input", { bubbles: true });
-      pincodeInput.dispatchEvent(event);
-    }
+    return data;
   } catch (error) {
     console.error("Error fetching property details:", error);
     alert("Could not find property with the given ID");
+    return null;
   }
 }
 
@@ -913,122 +1089,87 @@ function setupPincodeLookup() {
       );
       let currentDropdown = null;
 
-      if (stateInput && cityInput) {
-        pincodeInput.addEventListener("input", async function (e) {
-          const pincode = e.target.value.trim();
+      // Create inputs object
+      const inputs = {
+        pincodeInput,
+        stateInput,
+        cityInput,
+        localityInput,
+        currentDropdown,
+      };
 
-          // Remove existing dropdown if any
-          if (currentDropdown) {
-            currentDropdown.remove();
-            currentDropdown = null;
+      // Handle manual input with debouncing
+      let timeout = null;
+      pincodeInput.addEventListener("input", (e) => {
+        const pincode = e.target.value.trim();
+
+        // Clear previous timeout
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+
+        // Set new timeout
+        timeout = setTimeout(async () => {
+          const newDropdown = await handlePincodeLookup(pincode, false, inputs);
+          if (inputs.currentDropdown && inputs.currentDropdown.parentNode) {
+            inputs.currentDropdown.parentNode.removeChild(
+              inputs.currentDropdown
+            );
           }
+          inputs.currentDropdown = newDropdown;
+        }, 500); // 500ms delay
+      });
 
-          // Reset fields
-          stateInput.readOnly = false;
-          cityInput.readOnly = false;
-          stateInput.value = "";
-          cityInput.value = "";
-
-          if (localityInput) {
-            localityInput.readOnly = false;
-            localityInput.value = "";
-            localityInput.style.opacity = "1";
-            localityInput.style.cursor = "text";
-          }
-
-          [stateInput, cityInput].forEach((input) => {
-            input.style.opacity = "1";
-            input.style.cursor = "text";
-          });
-
-          if (pincode.length === 6 && /^\d+$/.test(pincode)) {
-            try {
-              // Show loading state
-              stateInput.value = "Loading...";
-              cityInput.value = "Loading...";
-              if (localityInput) localityInput.value = "Loading...";
-
-              const result = await getLocationFromPincode(pincode);
-
-              if (result.success && result.postOffices.length > 0) {
-                if (result.postOffices.length === 1) {
-                  // Single location case
-                  const location = result.postOffices[0];
-                  stateInput.value = location.state;
-                  cityInput.value = location.city;
-                  if (localityInput) localityInput.value = location.locality;
-                } else {
-                  // Multiple locations case
-                  const { dropdownContainer, select } = createLocalityDropdown(
-                    result.postOffices,
-                    section
+      // Handle value changes (for autofill)
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (
+            mutation.type === "attributes" &&
+            mutation.attributeName === "value"
+          ) {
+            const pincode = pincodeInput.value.trim();
+            if (pincode.length === 6) {
+              handlePincodeLookup(pincode, true, inputs).then((newDropdown) => {
+                if (
+                  inputs.currentDropdown &&
+                  inputs.currentDropdown.parentNode
+                ) {
+                  inputs.currentDropdown.parentNode.removeChild(
+                    inputs.currentDropdown
                   );
-                  const targetInput = localityInput || pincodeInput;
-                  targetInput.parentNode.insertBefore(
-                    dropdownContainer,
-                    targetInput.nextSibling
-                  );
-                  currentDropdown = dropdownContainer;
-
-                  // Set first location's city and state
-                  stateInput.value = result.postOffices[0].state;
-                  cityInput.value = result.postOffices[0].city;
-
-                  // Handle locality selection
-                  select.addEventListener("change", (e) => {
-                    const selected = result.postOffices[e.target.value];
-                    if (localityInput) {
-                      localityInput.value = selected.locality;
-                      localityInput.readOnly = true;
-                      localityInput.style.opacity = "0.8";
-                      localityInput.style.cursor = "not-allowed";
-                    }
-                    stateInput.value = selected.state;
-                    cityInput.value = selected.city;
-
-                    dropdownContainer.remove();
-                    currentDropdown = null;
-                    select.disabled = true;
-                  });
                 }
-
-                // Make city and state readonly
-                stateInput.readOnly = true;
-                cityInput.readOnly = true;
-                [stateInput, cityInput].forEach((input) => {
-                  input.style.opacity = "0.8";
-                  input.style.cursor = "not-allowed";
-                });
-              } else {
-                alert("Could not find location data for this PIN code");
-                // Reset loading state
-                stateInput.value = "";
-                cityInput.value = "";
-                if (localityInput) localityInput.value = "";
-              }
-            } catch (error) {
-              console.error("Error in pincode lookup:", error);
-              alert("Error fetching location data");
-              // Reset loading state
-              stateInput.value = "";
-              cityInput.value = "";
-              if (localityInput) localityInput.value = "";
+                inputs.currentDropdown = newDropdown;
+              });
             }
           }
         });
-      }
+      });
+
+      observer.observe(pincodeInput, {
+        attributes: true,
+        attributeFilter: ["value"],
+      });
     }
   });
 }
 
 // Create locality dropdown UI
-function createLocalityDropdown(postOffices, section) {
+function createLocalityDropdown(postOffices) {
+  // Create container
   const dropdownContainer = document.createElement("div");
   dropdownContainer.className = "locality-dropdown-container";
+  dropdownContainer.style.marginTop = "5px";
+  dropdownContainer.style.marginBottom = "10px";
 
+  // Create select element
   const select = document.createElement("select");
   select.className = "locality-dropdown";
+  select.style.width = "100%";
+  select.style.padding = "8px";
+  select.style.borderRadius = "4px";
+  select.style.border = "1px solid #ccc";
 
+  // Add default option
   const defaultOption = document.createElement("option");
   defaultOption.value = "";
   defaultOption.textContent = "Select Area/Locality";
@@ -1036,21 +1177,167 @@ function createLocalityDropdown(postOffices, section) {
   defaultOption.selected = true;
   select.appendChild(defaultOption);
 
+  // Add options for each post office
   postOffices.forEach((po, index) => {
     const option = document.createElement("option");
     option.value = index;
-    option.textContent = `${po.locality} (${po.branchType})`;
+    option.textContent = `${po.locality} (${po.branchType || "Branch"})`;
     select.appendChild(option);
   });
 
+  // Add select to container
   dropdownContainer.appendChild(select);
 
+  // Add info text
   const infoText = document.createElement("small");
   infoText.className = "locality-info";
+  infoText.style.display = "block";
+  infoText.style.marginTop = "5px";
+  infoText.style.color = "#666";
   infoText.textContent = `${postOffices.length} locations found for this pincode`;
   dropdownContainer.appendChild(infoText);
 
-  return { dropdownContainer, select };
+  return { container: dropdownContainer, select: select };
+}
+
+// Handle pincode lookup
+async function handlePincodeLookup(pincode, isAutofill, inputs) {
+  const {
+    pincodeInput,
+    stateInput,
+    cityInput,
+    localityInput,
+    currentDropdown,
+  } = inputs;
+  console.log(`Looking up pincode: ${pincode} (autofill: ${isAutofill})`);
+
+  try {
+    // Remove existing dropdown if any
+    if (currentDropdown && currentDropdown.parentNode) {
+      currentDropdown.parentNode.removeChild(currentDropdown);
+    }
+
+    // Reset fields if pincode is cleared
+    if (!pincode) {
+      [stateInput, cityInput, localityInput].forEach((input) => {
+        if (input) {
+          input.readOnly = false;
+          input.value = "";
+          input.style.opacity = "1";
+          input.style.cursor = "text";
+        }
+      });
+      return;
+    }
+
+    if (pincode.length === 6 && /^\d+$/.test(pincode)) {
+      // Show loading state
+      [stateInput, cityInput, localityInput].forEach((input) => {
+        if (input) {
+          input.value = "Loading...";
+          input.readOnly = true;
+        }
+      });
+
+      const result = await getLocationFromPincode(pincode);
+      console.log("Location lookup result:", result);
+
+      if (result.success && result.postOffices.length > 0) {
+        // Auto-fill state and city with first result
+        if (stateInput) {
+          stateInput.value = result.postOffices[0].state;
+          stateInput.readOnly = true;
+          stateInput.style.opacity = "0.8";
+          stateInput.style.cursor = "not-allowed";
+        }
+
+        if (cityInput) {
+          cityInput.value = result.postOffices[0].city;
+          cityInput.readOnly = true;
+          cityInput.style.opacity = "0.8";
+          cityInput.style.cursor = "not-allowed";
+        }
+
+        // Handle locality
+        if (localityInput) {
+          if (result.postOffices.length === 1) {
+            localityInput.value = result.postOffices[0].locality;
+            localityInput.readOnly = true;
+            localityInput.style.opacity = "0.8";
+            localityInput.style.cursor = "not-allowed";
+          } else {
+            localityInput.readOnly = false;
+            localityInput.style.opacity = "1";
+            localityInput.style.cursor = "text";
+            localityInput.value = "";
+
+            try {
+              // Create and insert dropdown
+              const dropdownContainer = createLocalityDropdown(
+                result.postOffices
+              );
+              if (localityInput.parentNode) {
+                localityInput.parentNode.insertBefore(
+                  dropdownContainer.container,
+                  localityInput.nextSibling
+                );
+
+                // Handle dropdown selection
+                dropdownContainer.select.addEventListener("change", (e) => {
+                  const selectedPostOffice = result.postOffices[e.target.value];
+                  if (selectedPostOffice) {
+                    localityInput.value = selectedPostOffice.locality;
+                    // Remove the dropdown after selection
+                    if (dropdownContainer.container.parentNode) {
+                      dropdownContainer.container.parentNode.removeChild(
+                        dropdownContainer.container
+                      );
+                    }
+                  }
+                });
+
+                return dropdownContainer.container; // Return the container for cleanup
+              }
+            } catch (dropdownError) {
+              console.error("Error creating dropdown:", dropdownError);
+            }
+          }
+        }
+      } else {
+        // Clear loading state
+        [stateInput, cityInput, localityInput].forEach((input) => {
+          if (input) {
+            input.value = "";
+            input.readOnly = false;
+            input.style.opacity = "1";
+            input.style.cursor = "text";
+          }
+        });
+
+        if (!isAutofill) {
+          alert(
+            result.error || "Could not find location data for this PIN code"
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Pincode lookup error:", error);
+    // Clear loading state
+    [stateInput, cityInput, localityInput].forEach((input) => {
+      if (input) {
+        input.value = "";
+        input.readOnly = false;
+        input.style.opacity = "1";
+        input.style.cursor = "text";
+      }
+    });
+    if (!isAutofill) {
+      alert("Error fetching location data. Please try again.");
+    }
+  }
+
+  return null; // Return null if no dropdown was created
 }
 
 // Transfer property on blockchain
@@ -1072,15 +1359,22 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
     }
     const account = accounts[0];
 
-    await debugPropertyTransfer(propertyId); // Temporary
+    // await debugPropertyTransfer(propertyId); // Temporary
 
     // Get the property ID
-    const propertyId = propertyData.propertyId || propertyData;
+    const propertyId =
+      typeof propertyData === "string" ? propertyData : propertyData.propertyId;
+    if (!propertyId) {
+      throw new Error("Property ID is required");
+    }
     console.log("Starting property transfer process:", {
       propertyId,
       currentAccount: account,
       newOwnerAddress,
     });
+
+    // Now pass the propertyId to the debug function
+    await debugPropertyTransfer(propertyId);
 
     // Get blockchain address with error handling
     let blockchainAddress;
@@ -1525,6 +1819,7 @@ async function initializeForm() {
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     await initializeForm();
+    setupDateRestrictions();
 
     // Additional debug logging
     console.log("Form Initialization Complete");
