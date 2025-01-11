@@ -7,7 +7,7 @@ const multer = require("multer");
 const { ObjectId } = require("mongodb");
 const dotenv = require("dotenv");
 const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
+// const rateLimit = require("express-rate-limit");
 const xss = require("xss");
 const jwt = require("jsonwebtoken");
 const { body, validationResult } = require("express-validator");
@@ -127,33 +127,44 @@ let client = null;
 // );
 
 // Rate limiting configuration
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: "Too many requests from this IP, please try again later",
-});
+// const apiLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 100, // Limit each IP to 100 requests per window
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: "Too many requests from this IP, please try again later",
+// });
 
-const loginLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // 5 failed attempts per hour
-  message: "Too many login attempts, please try again later",
-});
+// const loginLimiter = rateLimit({
+//   windowMs: 60 * 60 * 1000, // 1 hour
+//   max: 5, // 5 failed attempts per hour
+//   message: "Too many login attempts, please try again later",
+// });
 
 // Apply rate limiting
-app.use("/api/", apiLimiter);
-app.use("/login", loginLimiter);
+// app.use("/api/", apiLimiter);
+// app.use("/login", loginLimiter);
 
 // CORS Configuration
 app.use(
   cors({
     origin: true,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Device-ID",
+      "X-Environment",
+      "Origin",
+      "Accept",
+    ],
+    exposedHeaders: ["Content-Length", "X-Foo", "X-Bar"],
   })
 );
+
+// Add OPTIONS handling for preflight requests
+app.options("*", cors());
 
 // Body parser configuration
 app.use(bodyParser.json({ limit: "10kb" }));
@@ -215,11 +226,36 @@ const upload = multer({
 // JWT Token Verification Middleware
 const enhancedVerifyToken = async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
-    const deviceId = req.headers["x-device-id"];
+    console.log("Token verification started");
+    console.log("Incoming headers:", req.headers);
 
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      console.log("No authorization header");
+      return res
+        .status(401)
+        .json({ error: "No authorization header provided" });
+    }
+
+    const token = authHeader.split(" ")[1];
     if (!token) {
-      return res.status(401).json({ error: "No token provided" });
+      console.log("No token in authorization header");
+      return res
+        .status(401)
+        .json({ error: "No token provided in authorization header" });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log("Token verified for user:", decoded.email);
+    } catch (jwtError) {
+      console.log("JWT verification failed:", jwtError.message);
+      return res.status(401).json({
+        error: "Invalid token",
+        details:
+          process.env.NODE_ENV === "development" ? jwtError.message : undefined,
+      });
     }
 
     // Check if token is invalidated
@@ -227,34 +263,57 @@ const enhancedVerifyToken = async (req, res, next) => {
       .collection("invalidatedTokens")
       .findOne({ token });
     if (invalidated) {
+      console.log("Token has been invalidated");
       return res.status(401).json({ error: "Token has been invalidated" });
     }
 
-    // Verify JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
+    // Device session verification with auto-creation
+    const deviceId = req.headers["x-device-id"];
     if (deviceId) {
-      // Verify device session if device ID is provided
-      const session = await db.collection("deviceSessions").findOne({
+      // Look for existing session without token match
+      let session = await db.collection("deviceSessions").findOne({
         userId: decoded.email,
         "deviceInfo.deviceId": deviceId,
       });
 
       if (!session) {
-        return res.status(401).json({ error: "Invalid device session" });
+        // Create new session if none exists
+        session = {
+          userId: decoded.email,
+          deviceInfo: {
+            deviceId: deviceId,
+            platform: req.headers["user-agent"] || "unknown",
+          },
+          token: token,
+          createdAt: new Date(),
+          lastActive: new Date(),
+        };
+        await db.collection("deviceSessions").insertOne(session);
+        console.log("Created new device session for:", deviceId);
+      } else {
+        // Update existing session with new token
+        await db.collection("deviceSessions").updateOne(
+          { _id: session._id },
+          {
+            $set: {
+              token: token,
+              lastActive: new Date(),
+            },
+          }
+        );
+        console.log("Updated device session for:", deviceId);
       }
-
-      // Update last active timestamp
-      await db
-        .collection("deviceSessions")
-        .updateOne({ _id: session._id }, { $set: { lastActive: new Date() } });
     }
 
     req.user = decoded;
     next();
   } catch (error) {
     console.error("Token verification error:", error);
-    res.status(401).json({ error: "Invalid token" });
+    res.status(401).json({
+      error: "Authentication failed",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 };
 
@@ -293,6 +352,41 @@ async function connectToMongoDB() {
 app.use((req, res, next) => {
   req.db = db;
   next();
+});
+
+// Debug route
+// Add this before your routes
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  if (process.env.NODE_ENV === "development") {
+    console.log("Body:", JSON.stringify(req.body, null, 2));
+  }
+  next();
+});
+
+// Add error logging middleware
+app.use((err, req, res, next) => {
+  console.error("Error occurred:", {
+    timestamp: new Date().toISOString(),
+    method: req.method,
+    url: req.url,
+    headers: req.headers,
+    error: err.message,
+    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+  });
+
+  res.status(err.status || 500).json({
+    error:
+      process.env.NODE_ENV === "development"
+        ? err.message
+        : "Internal server error",
+  });
+});
+
+// Serve home page
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "./public/home.html"));
 });
 
 // Authentication Routes
@@ -716,7 +810,27 @@ app.get("/api/registrations/:propertyId", async (req, res) => {
 
 // Property search route
 app.get("/api/property/search", express.json(), async (req, res) => {
+  console.log("Property search request received");
+  console.log("Auth header:", req.headers.authorization);
+  console.log("Device ID:", req.headers["x-device-id"]);
+  console.log("Search params:", req.query);
+
   try {
+    // Verify token first
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      console.log("No token provided in search request");
+      return res.status(401).json({ error: "No token provided" });
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log("Token verified successfully:", decoded.email);
+    } catch (jwtError) {
+      console.log("Token verification failed:", jwtError.message);
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
     const { mainSearch, city, propertyId } = req.query;
 
     // Build the query object
@@ -735,12 +849,11 @@ app.get("/api/property/search", express.json(), async (req, res) => {
       searchConditions.push({ pid: new RegExp(propertyId, "i") });
     }
 
-    // Add $or operator if there are search conditions
     if (searchConditions.length > 0) {
       query.$or = searchConditions;
     }
 
-    console.log("Search query:", JSON.stringify(query, null, 2));
+    console.log("MongoDB query:", JSON.stringify(query, null, 2));
 
     const properties = await db
       .collection("properties")
@@ -928,6 +1041,170 @@ app.post("/api/auth/invalidate", enhancedVerifyToken, async (req, res) => {
   } catch (error) {
     console.error("Token invalidation error:", error);
     res.status(500).json({ error: "Failed to invalidate token" });
+  }
+});
+
+app.get("/api/registrar-offices", enhancedVerifyToken, async (req, res) => {
+  try {
+    const { city, date } = req.query;
+
+    if (!city || !date) {
+      return res.status(400).json({
+        error: "City and date are required parameters",
+      });
+    }
+
+    // Fetch offices from the registries collection based on city
+    const offices = await db
+      .collection("registries")
+      .find({
+        city: new RegExp(city, "i"),
+      })
+      .toArray();
+
+    if (!offices || offices.length === 0) {
+      return res.status(404).json({
+        error: "No sub-registrar offices found in the specified city",
+      });
+    }
+
+    // Generate time slots for the given date
+    const selectedDate = new Date(date);
+    const timeSlots = generateTimeSlots();
+
+    // Check existing appointments to determine slot availability
+    const appointments = await db
+      .collection("appointments")
+      .find({
+        officeId: { $in: offices.map((office) => office._id) },
+        appointmentDate: {
+          $gte: new Date(selectedDate.setHours(0, 0, 0, 0)),
+          $lt: new Date(selectedDate.setHours(23, 59, 59, 999)),
+        },
+      })
+      .toArray();
+
+    // Process each office and its available slots
+    const officesWithSlots = offices.map((office) => {
+      const officeAppointments = appointments.filter(
+        (apt) => apt.officeId.toString() === office._id.toString()
+      );
+
+      const availableSlots = timeSlots.map((slot) => ({
+        ...slot,
+        available: !officeAppointments.some(
+          (apt) => apt.timeSlot === slot.value
+        ),
+      }));
+
+      return {
+        id: office._id,
+        name: office.name,
+        address: office.address,
+        city: office.city,
+        contactNumber: office.contactNumber,
+        availableSlots: availableSlots,
+      };
+    });
+
+    res.json({
+      offices: officesWithSlots,
+    });
+  } catch (error) {
+    console.error("Error fetching registrar offices:", error);
+    res.status(500).json({
+      error: "Failed to fetch sub-registrar offices",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Helper function to generate time slots
+function generateTimeSlots() {
+  const slots = [];
+  const startHour = 9;
+  const endHour = 17;
+
+  for (let hour = startHour; hour < endHour; hour++) {
+    // First half hour slot
+    slots.push({
+      value: `${hour.toString().padStart(2, "0")}:00`,
+      label: `${hour.toString().padStart(2, "0")}:00 - ${hour
+        .toString()
+        .padStart(2, "0")}:30`,
+    });
+
+    // Second half hour slot
+    slots.push({
+      value: `${hour.toString().padStart(2, "0")}:30`,
+      label: `${hour.toString().padStart(2, "0")}:30 - ${(hour + 1)
+        .toString()
+        .padStart(2, "0")}:00`,
+    });
+  }
+
+  return slots;
+}
+
+// Helper route to create a new appointment
+app.post("/api/appointments", enhancedVerifyToken, async (req, res) => {
+  try {
+    const { officeId, date, timeSlot } = req.body;
+
+    if (!officeId || !date || !timeSlot) {
+      return res.status(400).json({
+        error: "Office ID, date, and time slot are required",
+      });
+    }
+
+    // Check if slot is already booked
+    const existingAppointment = await db.collection("appointments").findOne({
+      officeId: new ObjectId(officeId),
+      appointmentDate: new Date(date),
+      timeSlot,
+    });
+
+    if (existingAppointment) {
+      return res.status(409).json({
+        error: "This time slot is already booked",
+      });
+    }
+
+    // Create new appointment
+    const appointment = {
+      officeId: new ObjectId(officeId),
+      userId: req.user.email,
+      appointmentDate: new Date(date),
+      timeSlot,
+      status: "scheduled",
+      createdAt: new Date(),
+      lastModified: new Date(),
+    };
+
+    const result = await db.collection("appointments").insertOne(appointment);
+
+    // Add audit log entry
+    await db.collection("auditLog").insertOne({
+      action: "APPOINTMENT_CREATED",
+      userId: req.user.email,
+      appointmentId: result.insertedId,
+      officeId: new ObjectId(officeId),
+      timestamp: new Date(),
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json({
+      message: "Appointment scheduled successfully",
+      appointmentId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Error creating appointment:", error);
+    res.status(500).json({
+      error: "Failed to create appointment",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 });
 

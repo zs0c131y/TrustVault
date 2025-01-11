@@ -1,3 +1,5 @@
+import { getToken, handleAuthRedirect } from "./auth.js";
+
 document.addEventListener("DOMContentLoaded", function () {
   const mainSearchInput = document.querySelector(".search-input");
   const cityInput = document.querySelector('input[placeholder="City"]');
@@ -9,9 +11,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Authentication check
   async function checkAuth() {
-    const token = localStorage.getItem("trustvault_dev_token");
+    const token = getToken();
     if (!token) {
-      window.location.href = "./login.html";
+      handleAuthRedirect(window.location.pathname);
       return false;
     }
     return true;
@@ -47,7 +49,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     try {
-      const token = localStorage.getItem("trustvault_dev_token");
+      const devToken = localStorage.getItem("trustvault_dev_token");
+      const prodToken = localStorage.getItem("trustvault_prod_token");
+      const token = devToken || prodToken;
       if (!token) {
         window.location.href = "./login.html";
         return;

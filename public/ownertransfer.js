@@ -131,24 +131,33 @@ async function checkNetwork(web3) {
 }
 
 // Set Date Restrictions
-function setupDateRestrictions() {
-  const dateInput = document.getElementById("date");
-  if (dateInput) {
+function setupDateValidation() {
+  const transactionDateInput = document.querySelector('input[type="date"]');
+  if (transactionDateInput) {
     // Get today's date in YYYY-MM-DD format
-    const today = new Date().toISOString().split("T")[0];
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    const maxDate = `${year}-${month}-${day}`;
 
     // Set max attribute to today
-    dateInput.setAttribute("max", today);
+    transactionDateInput.setAttribute("max", maxDate);
 
-    // Add event listener to prevent future date selection
-    dateInput.addEventListener("input", function (e) {
+    // Set a default value of today
+    transactionDateInput.value = maxDate;
+
+    // Add event listener for validation
+    transactionDateInput.addEventListener("input", function () {
       const selectedDate = new Date(this.value);
       const currentDate = new Date();
 
-      // Reset to today if future date is selected
+      selectedDate.setHours(0, 0, 0, 0);
+      currentDate.setHours(0, 0, 0, 0);
+
       if (selectedDate > currentDate) {
-        this.value = today;
-        alert("Future dates cannot be selected");
+        this.value = maxDate;
+        alert("Transaction date cannot be in the future");
       }
     });
   }
@@ -1803,6 +1812,9 @@ async function initializeForm() {
 
       // Prefill user email
       await prefillUserEmail();
+
+      // Setup date validation
+      setupDateValidation();
 
       // Setup all event listeners and handlers
       setupEventListeners();
