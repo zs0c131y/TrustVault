@@ -5,9 +5,10 @@
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "server": "nodemon server.js"
+    "backend": "npx nodemon server.js",
+    "hardhat": "npx hardhat node",
+    "deploy": "npx hardhat run scripts/deploy.js --network localhost",
+    "dev": "concurrently \"npm run backend\" \"npm run hardhat\" \"npm run deploy\""
   },
   "repository": {
     "type": "git",
@@ -49,7 +50,7 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "concurrently": "^9.1.0",
+    "concurrently": "^9.1.2",
     "nodemon": "^3.1.9"
   }
 }

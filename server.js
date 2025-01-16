@@ -1044,9 +1044,28 @@ app.post("/api/auth/invalidate", enhancedVerifyToken, async (req, res) => {
   }
 });
 
+// Normalize the city name by removing common prefixes and trimming
+function normalizeCity(city) {
+  return city
+    .toLowerCase()
+    .replace(/\b(centra|central|east|west|north|south)\s+/g, "")
+    .trim();
+}
+
+// Registrar offices endpoint
 app.get("/api/registrar-offices", enhancedVerifyToken, async (req, res) => {
   try {
-    const { city, date } = req.query;
+    const { city, date, type } = req.query;
+
+    const validTypes = ["transfer", "registration"];
+    if (!type || !validTypes.includes(type)) {
+      return res.status(400).json({
+        error:
+          "Invalid appointment type. Allowed values are 'transfer' or 'registration'.",
+      });
+    }
+
+    const appointmentType = type;
 
     if (!city || !date) {
       return res.status(400).json({
@@ -1054,11 +1073,23 @@ app.get("/api/registrar-offices", enhancedVerifyToken, async (req, res) => {
       });
     }
 
-    // Fetch offices from the registries collection based on city
+    // Normalize the search city
+    const normalizedCity = normalizeCity(city);
+
+    // Fetch offices using normalized city name
     const offices = await db
-      .collection("registries")
+      .collection("registrars")
       .find({
-        city: new RegExp(city, "i"),
+        $or: [
+          { city: new RegExp(normalizedCity, "i") },
+          { normalized_city: normalizedCity }, // If you decide to store normalized city names
+        ],
+      })
+      .project({
+        name: 1,
+        office_name: 1,
+        area: 1,
+        city: 1,
       })
       .toArray();
 
@@ -1068,41 +1099,51 @@ app.get("/api/registrar-offices", enhancedVerifyToken, async (req, res) => {
       });
     }
 
-    // Generate time slots for the given date
-    const selectedDate = new Date(date);
+    // Generate time slots
     const timeSlots = generateTimeSlots();
 
-    // Check existing appointments to determine slot availability
+    // Get existing appointments for the date
+    const selectedDate = new Date(date);
     const appointments = await db
       .collection("appointments")
       .find({
-        officeId: { $in: offices.map((office) => office._id) },
+        officeId: {
+          $in: offices.map((office) => new ObjectId(office._id.toString())),
+        },
         appointmentDate: {
           $gte: new Date(selectedDate.setHours(0, 0, 0, 0)),
           $lt: new Date(selectedDate.setHours(23, 59, 59, 999)),
         },
+        type: appointmentType,
+        status: { $nin: ["cancelled", "completed"] },
       })
       .toArray();
 
     // Process each office and its available slots
     const officesWithSlots = offices.map((office) => {
       const officeAppointments = appointments.filter(
-        (apt) => apt.officeId.toString() === office._id.toString()
+        (apt) => apt.officeId.toString() === office._id.toString() // Convert both to strings for comparison
       );
 
-      const availableSlots = timeSlots.map((slot) => ({
-        ...slot,
-        available: !officeAppointments.some(
+      const availableSlots = timeSlots.map((slot) => {
+        const slotAppointments = officeAppointments.filter(
           (apt) => apt.timeSlot === slot.value
-        ),
-      }));
+        );
+
+        return {
+          ...slot,
+          available: slotAppointments.length < 3, // Slot is available if less than 3 appointments
+          appointmentCount: slotAppointments.length,
+          remainingSlots: 3 - slotAppointments.length,
+        };
+      });
 
       return {
         id: office._id,
-        name: office.name,
-        address: office.address,
+        name: office.office_name,
+        office_name: office.office_name,
+        area: office.area,
         city: office.city,
-        contactNumber: office.contactNumber,
         availableSlots: availableSlots,
       };
     });
@@ -1147,36 +1188,54 @@ function generateTimeSlots() {
   return slots;
 }
 
-// Helper route to create a new appointment
+// Create new appointment
 app.post("/api/appointments", enhancedVerifyToken, async (req, res) => {
   try {
-    const { officeId, date, timeSlot } = req.body;
+    const { officeId, officeName, date, timeSlot, type } = req.body;
 
-    if (!officeId || !date || !timeSlot) {
+    if (!officeId || !officeName || !date || !timeSlot) {
       return res.status(400).json({
-        error: "Office ID, date, and time slot are required",
+        error: "Office ID, office name, date, and time slot are required",
       });
     }
 
-    // Check if slot is already booked
-    const existingAppointment = await db.collection("appointments").findOne({
-      officeId: new ObjectId(officeId),
-      appointmentDate: new Date(date),
-      timeSlot,
-    });
+    // Validate the type field and ensure it has a valid value
+    const validTypes = ["transfer", "registration"];
+    if (!type || !validTypes.includes(type)) {
+      return res.status(400).json({
+        error:
+          "Invalid appointment type. Allowed values are 'transfer' or 'registration'.",
+      });
+    }
 
-    if (existingAppointment) {
+    // Use the valid type directly
+    const appointmentType = type;
+
+    // Check existing appointments count for this time slot and type
+    const existingAppointments = await db
+      .collection("appointments")
+      .countDocuments({
+        officeId: new ObjectId(officeId), // Make sure officeId is converted to ObjectId
+        appointmentDate: new Date(date),
+        timeSlot,
+        type: appointmentType,
+        status: { $nin: ["cancelled", "completed"] },
+      });
+
+    if (existingAppointments >= 3) {
       return res.status(409).json({
-        error: "This time slot is already booked",
+        error: `This time slot has reached maximum capacity for ${appointmentType} appointments`,
       });
     }
 
     // Create new appointment
     const appointment = {
       officeId: new ObjectId(officeId),
+      officeName: officeName,
       userId: req.user.email,
       appointmentDate: new Date(date),
       timeSlot,
+      type: appointmentType,
       status: "scheduled",
       createdAt: new Date(),
       lastModified: new Date(),
@@ -1190,6 +1249,8 @@ app.post("/api/appointments", enhancedVerifyToken, async (req, res) => {
       userId: req.user.email,
       appointmentId: result.insertedId,
       officeId: new ObjectId(officeId),
+      officeName: officeName,
+      type: appointmentType,
       timestamp: new Date(),
       ipAddress: req.ip,
     });

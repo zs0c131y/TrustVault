@@ -132,7 +132,11 @@ async function checkNetwork(web3) {
 
 // Set Date Restrictions
 function setupDateValidation() {
-  const transactionDateInput = document.querySelector('input[type="date"]');
+  // Transaction date setup (for property transaction)
+  const transactionDateInput = document.querySelector(
+    'section:not(.appointement-details) input[type="date"]'
+  ); // More specific selector to avoid picking up appointment date
+
   if (transactionDateInput) {
     // Get today's date in YYYY-MM-DD format
     const today = new Date();
@@ -141,14 +145,12 @@ function setupDateValidation() {
     const day = String(today.getDate()).padStart(2, "0");
     const maxDate = `${year}-${month}-${day}`;
 
-    // Set max attribute to today
+    // Set max attribute to today for transaction date
     transactionDateInput.setAttribute("max", maxDate);
-
-    // Set a default value of today
     transactionDateInput.value = maxDate;
 
-    // Add event listener for validation
-    transactionDateInput.addEventListener("input", function () {
+    // Add event listener for transaction date validation
+    transactionDateInput.addEventListener("change", function () {
       const selectedDate = new Date(this.value);
       const currentDate = new Date();
 
@@ -618,12 +620,20 @@ function validateForm() {
   const allSelects = form.querySelectorAll("select");
   const allFileInputs = form.querySelectorAll('input[type="file"]');
   const registrarOffice = document.getElementById("Choose");
-  const appointmentDateTime = document.getElementById("date");
+  const appointmentDate = document.getElementById("appointmentDate");
+  const timeSlot = document.getElementById("timeSlot");
 
   let isValid = true;
   let errorMessage = "";
 
-  // First check appointment details
+  // Check appointment details
+  if (!appointmentDate || !appointmentDate.value) {
+    isValid = false;
+    errorMessage = "Please select appointment date";
+    alert(errorMessage);
+    return false;
+  }
+
   if (
     !registrarOffice ||
     registrarOffice.value === "" ||
@@ -635,13 +645,9 @@ function validateForm() {
     return false;
   }
 
-  if (
-    !appointmentDateTime ||
-    appointmentDateTime.value === "" ||
-    appointmentDateTime.value === "date"
-  ) {
+  if (!timeSlot || !timeSlot.value) {
     isValid = false;
-    errorMessage = "Please select appointment date and time";
+    errorMessage = "Please select a time slot";
     alert(errorMessage);
     return false;
   }
@@ -1636,7 +1642,8 @@ async function prepareFormData(blockchainResult) {
   // Add appointment information
   const appointmentInfo = {
     office: document.getElementById("Choose").value,
-    datetime: document.getElementById("date").value,
+    date: document.getElementById("appointmentDate").value,
+    timeSlot: document.getElementById("timeSlot").value,
   };
   formData.append("appointmentInfo", JSON.stringify(appointmentInfo));
 
@@ -1659,6 +1666,15 @@ async function prepareFormData(blockchainResult) {
   });
 
   return formData;
+}
+
+// Helper function to determine appointment type
+function getAppointmentType() {
+  const pathname = window.location.pathname.toLowerCase();
+  if (pathname.includes("transfer") || pathname.includes("ownertransfer")) {
+    return "transfer";
+  }
+  return "registration";
 }
 
 // Handle form submission
@@ -1771,6 +1787,155 @@ function setupFileUploadHandlers() {
   });
 }
 
+// Setup appointment date picker
+function setupAppointmentDatePicker() {
+  const appointmentDate = document.getElementById("appointmentDate");
+  if (appointmentDate) {
+    // Set min date to tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 30);
+
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
+    const maxDateStr = maxDate.toISOString().split("T")[0];
+
+    appointmentDate.min = tomorrowStr;
+    appointmentDate.max = maxDateStr;
+
+    // Listen for date changes
+    appointmentDate.addEventListener("change", () => {
+      const officeSelect = document.getElementById("Choose");
+      const timeSlotSelect = document.getElementById("timeSlot");
+
+      // Reset and disable time slot selection
+      timeSlotSelect.innerHTML =
+        '<option value="" disabled selected>Choose Time Slot</option>';
+      timeSlotSelect.disabled = true;
+
+      // Enable office selection if date is selected
+      if (appointmentDate.value) {
+        officeSelect.disabled = false;
+        updateRegistrarOffices();
+      } else {
+        officeSelect.disabled = true;
+        officeSelect.innerHTML =
+          '<option value="register" disabled selected>Choose Sub-Registrar Office</option>';
+      }
+    });
+  }
+}
+
+// Function to update available time slots
+function updateTimeSlots(officeId) {
+  const timeSlotSelect = document.getElementById("timeSlot");
+  const selectedOption = document.getElementById("Choose").selectedOptions[0];
+
+  if (!selectedOption || !selectedOption.dataset.slots) {
+    timeSlotSelect.innerHTML =
+      '<option value="" disabled selected>Choose Time Slot</option>';
+    timeSlotSelect.disabled = true;
+    return;
+  }
+
+  const slots = JSON.parse(selectedOption.dataset.slots);
+  timeSlotSelect.innerHTML =
+    '<option value="" disabled selected>Choose Time Slot</option>';
+
+  slots.forEach((slot) => {
+    const option = document.createElement("option");
+    option.value = slot.value;
+
+    // Show remaining slots in the option text
+    if (slot.available) {
+      option.textContent = `${slot.label} (${slot.remainingSlots} slots available)`;
+    } else {
+      option.textContent = `${slot.label} (Full)`;
+      option.disabled = true;
+    }
+
+    timeSlotSelect.appendChild(option);
+  });
+
+  timeSlotSelect.disabled = false;
+}
+
+// Function to fetch and populate registrar offices
+async function updateRegistrarOffices() {
+  const cityInput = document.querySelector('input[placeholder="City"]');
+  const appointmentDate = document.getElementById("appointmentDate");
+  const officeSelect = document.getElementById("Choose");
+  const timeSlotSelect = document.getElementById("timeSlot");
+
+  if (!cityInput?.value || !appointmentDate?.value) {
+    console.log("Missing required data for office update");
+    return;
+  }
+
+  try {
+    officeSelect.disabled = true;
+    officeSelect.innerHTML =
+      '<option value="register" disabled selected>Loading offices...</option>';
+    timeSlotSelect.disabled = true;
+    timeSlotSelect.innerHTML =
+      '<option value="" disabled selected>Choose Time Slot</option>';
+
+    const response = await fetch(
+      `/api/registrar-offices?city=${encodeURIComponent(
+        cityInput.value
+      )}&date=${appointmentDate.value}&type=${getAppointmentType()}`,
+      {
+        headers: getAuthHeaders(),
+      }
+    );
+
+    const data = await response.json();
+    console.log("Received office data:", data);
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || `Failed to fetch offices: ${response.status}`
+      );
+    }
+
+    // Clear existing options
+    officeSelect.innerHTML =
+      '<option value="register" disabled selected>Choose Sub-Registrar Office</option>';
+
+    // Add new options
+    if (data.offices && Array.isArray(data.offices)) {
+      data.offices.forEach((office) => {
+        const option = document.createElement("option");
+        option.value = office.id || "";
+        option.textContent = office.name || "Unnamed Office";
+
+        if (office.availableSlots) {
+          option.dataset.slots = JSON.stringify(office.availableSlots);
+        }
+
+        officeSelect.appendChild(option);
+      });
+    }
+
+    // Enable/disable based on available offices
+    const hasValidOffices = data.offices && data.offices.length > 0;
+    officeSelect.disabled = !hasValidOffices;
+
+    if (!hasValidOffices) {
+      officeSelect.innerHTML =
+        '<option value="register" disabled selected>No offices available in this city</option>';
+    }
+
+    console.log("Office update complete");
+  } catch (error) {
+    console.error("Error fetching registrar offices:", error);
+    officeSelect.innerHTML =
+      '<option value="register" disabled selected>Error loading offices</option>';
+    officeSelect.disabled = true;
+    timeSlotSelect.disabled = true;
+  }
+}
+
 // Setup all event listeners
 function setupEventListeners() {
   // Form submission
@@ -1784,6 +1949,28 @@ function setupEventListeners() {
   if (backButton) {
     backButton.addEventListener("click", () => {
       history.back();
+    });
+  }
+
+  // Setup appointment date picker
+  setupAppointmentDatePicker();
+
+  // Setup office selection change handler
+  const officeSelect = document.getElementById("Choose");
+  if (officeSelect) {
+    officeSelect.addEventListener("change", () => {
+      updateTimeSlots(officeSelect.value);
+    });
+  }
+
+  // Setup city input change handler for office updates
+  const cityInput = document.querySelector('input[placeholder="City"]');
+  if (cityInput) {
+    cityInput.addEventListener("change", () => {
+      const appointmentDate = document.getElementById("appointmentDate");
+      if (appointmentDate.value) {
+        updateRegistrarOffices();
+      }
     });
   }
 
@@ -1831,7 +2018,7 @@ async function initializeForm() {
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     await initializeForm();
-    setupDateRestrictions();
+    setupDateValidation();
 
     // Additional debug logging
     console.log("Form Initialization Complete");

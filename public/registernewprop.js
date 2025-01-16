@@ -344,8 +344,6 @@ window.debugWeb3Setup = async function () {
 async function checkAuthentication() {
   try {
     const token = getToken();
-    console.log("Token found");
-
     if (!token) {
       console.log("No token found, redirecting to login...");
       window.location.href = "/login.html";
@@ -354,22 +352,19 @@ async function checkAuthentication() {
 
     const response = await fetch("/checkAuth", {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(), // Using the updated getAuthHeaders function
     });
 
-    const data = await response.json();
-
-    if (!data.authenticated) {
-      console.log("Authentication failed, redirecting to login...");
-      window.location.href = "/login.html";
-      return false;
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return false;
+      }
+      throw new Error(`Authentication check failed: ${response.status}`);
     }
 
-    console.log("Authentication successful");
-    return true;
+    const data = await response.json();
+    return data.authenticated;
   } catch (error) {
     console.error("Authentication check failed:", error);
     window.location.href = "/login.html";
@@ -471,6 +466,15 @@ const validations = {
   },
 };
 
+// Helper function to determine appointment type
+function getAppointmentType() {
+  const pathname = window.location.pathname.toLowerCase();
+  if (pathname.includes("register") || pathname.includes("registernewprop")) {
+    return "registration";
+  }
+  return "transfer";
+}
+
 // Function to validate form fields
 function validateForm() {
   const phoneInputs = document.querySelectorAll('input[type="tel"]');
@@ -478,7 +482,9 @@ function validateForm() {
   const idInputs = document.querySelectorAll(
     'input[placeholder="Aadhar / PAN Number"]'
   );
-  const transactionDate = document.querySelector('input[type="date"]').value;
+  const transactionDate = document.querySelector(
+    'input[type="date"]:not(#appointmentDate)'
+  ).value;
   const selectedDate = new Date(transactionDate);
   const currentDate = new Date();
 
@@ -492,7 +498,8 @@ function validateForm() {
 
   // Specifically check appointment details
   const registrarOffice = document.getElementById("Choose");
-  const appointmentDateTime = document.getElementById("date");
+  const appointmentDateTime = document.getElementById("appointmentDate");
+  const timeSlot = document.getElementById("timeSlot");
 
   // Validate appointment details first
   if (
@@ -514,6 +521,11 @@ function validateForm() {
     isValid = false;
     errorMessage = "Please select Date and Time for appointment";
     alert(errorMessage);
+    return false;
+  }
+
+  if (!timeSlot || !timeSlot.value) {
+    alert("Please select a time slot");
     return false;
   }
 
@@ -968,6 +980,168 @@ async function initializeForm() {
   }
 }
 
+// Setup appointment date picker
+function setupAppointmentDatePicker() {
+  const appointmentDate = document.getElementById("appointmentDate");
+  if (appointmentDate) {
+    // Set min date to today
+    const today = new Date();
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 30); // 30 days from today
+
+    // Format dates to YYYY-MM-DD
+    const todayStr = today.toISOString().split("T")[0];
+    const maxDateStr = maxDate.toISOString().split("T")[0];
+
+    // Set the date range
+    appointmentDate.setAttribute("min", todayStr);
+    appointmentDate.setAttribute("max", maxDateStr);
+
+    // Listen for date changes
+    appointmentDate.addEventListener("change", () => {
+      const selectedDate = new Date(appointmentDate.value);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (selectedDate < today) {
+        alert("Appointment date cannot be in the past");
+        appointmentDate.value = todayStr;
+        return;
+      }
+
+      const officeSelect = document.getElementById("Choose");
+      const timeSlotSelect = document.getElementById("timeSlot");
+
+      // Reset and disable time slot selection
+      timeSlotSelect.innerHTML =
+        '<option value="" disabled selected>Choose Time Slot</option>';
+      timeSlotSelect.disabled = true;
+
+      // Enable office selection if date is selected
+      if (appointmentDate.value) {
+        officeSelect.disabled = false;
+        updateRegistrarOffices();
+      } else {
+        officeSelect.disabled = true;
+        officeSelect.innerHTML =
+          '<option value="register" disabled selected>Choose Sub-Registrar Office</option>';
+      }
+    });
+  }
+}
+
+// Function to update registrar offices
+async function updateRegistrarOffices() {
+  const cityInput = document.querySelector('input[placeholder="City"]');
+  const appointmentDate = document.getElementById("appointmentDate");
+  const officeSelect = document.getElementById("Choose");
+  const timeSlotSelect = document.getElementById("timeSlot");
+
+  console.log("Updating offices with:", {
+    city: cityInput?.value,
+    date: appointmentDate?.value,
+  });
+
+  if (!cityInput?.value || !appointmentDate?.value) {
+    console.log("Missing required data for office update");
+    return;
+  }
+
+  try {
+    officeSelect.disabled = true;
+    officeSelect.innerHTML =
+      '<option value="register" disabled selected>Loading offices...</option>';
+    timeSlotSelect.disabled = true;
+    timeSlotSelect.innerHTML =
+      '<option value="" disabled selected>Choose Time Slot</option>';
+
+    const response = await fetch(
+      `/api/registrar-offices?city=${encodeURIComponent(
+        cityInput.value
+      )}&date=${appointmentDate.value}&type=${getAppointmentType()}`,
+      {
+        headers: getAuthHeaders(),
+      }
+    );
+
+    const data = await response.json();
+    console.log("Received office data:", data);
+
+    // Clear existing options
+    officeSelect.innerHTML =
+      '<option value="register" disabled selected>Choose Sub-Registrar Office</option>';
+
+    // Add new options
+    if (data.offices && Array.isArray(data.offices)) {
+      data.offices.forEach((office) => {
+        const option = document.createElement("option");
+        option.value = office.id || "";
+        option.textContent = office.office_name || "Unnamed Office";
+
+        if (office.availableSlots) {
+          option.dataset.slots = JSON.stringify(office.availableSlots);
+        }
+
+        officeSelect.appendChild(option);
+      });
+    }
+
+    // Enable/disable based on available offices
+    const hasValidOffices = data.offices && data.offices.length > 0;
+    officeSelect.disabled = !hasValidOffices;
+
+    if (!hasValidOffices) {
+      officeSelect.innerHTML =
+        '<option value="register" disabled selected>No offices available in this city</option>';
+    }
+
+    console.log("Office update complete");
+  } catch (error) {
+    console.error("Error fetching registrar offices:", error);
+    officeSelect.innerHTML =
+      '<option value="register" disabled selected>Error loading offices</option>';
+    officeSelect.disabled = true;
+    timeSlotSelect.disabled = true;
+  }
+}
+
+// Function to update time slots
+function updateTimeSlots() {
+  const timeSlotSelect = document.getElementById("timeSlot");
+  const officeSelect = document.getElementById("Choose");
+  const selectedOption = officeSelect.selectedOptions[0];
+
+  if (!selectedOption || !selectedOption.dataset.slots) {
+    timeSlotSelect.innerHTML =
+      '<option value="" disabled selected>Choose Time Slot</option>';
+    timeSlotSelect.disabled = true;
+    return;
+  }
+
+  // Store the currently selected office ID
+  const currentOfficeId = officeSelect.value;
+
+  const slots = JSON.parse(selectedOption.dataset.slots);
+  timeSlotSelect.innerHTML =
+    '<option value="" disabled selected>Choose Time Slot</option>';
+
+  slots.forEach((slot) => {
+    const option = document.createElement("option");
+    option.value = slot.value;
+
+    if (slot.available) {
+      option.textContent = `${slot.label} (${slot.remainingSlots} slots available)`;
+    } else {
+      option.textContent = `${slot.label} (Full)`;
+      option.disabled = true;
+    }
+
+    timeSlotSelect.appendChild(option);
+  });
+
+  timeSlotSelect.disabled = false;
+}
+
 // Setup form elements
 function setupFormElements() {
   const propertyForm = document.getElementById("propertyForm");
@@ -1014,25 +1188,49 @@ function setupFormElements() {
 }
 
 // Handle form submission
-// Handle form submission
 async function handleFormSubmit(e) {
   e.preventDefault();
-
-  if (!isAuthenticated()) {
-    window.location.href = "/login.html";
-    return;
-  }
-
-  if (!validateForm()) {
-    return;
-  }
 
   const submitButton = document.querySelector(".continue-btn");
   submitButton.disabled = true;
   submitButton.textContent = "Processing...";
 
   try {
-    // Collect form data
+    // Check authentication first
+    const token = getToken();
+    if (!token) {
+      window.location.href = "/login.html";
+      return;
+    }
+
+    if (!validateForm()) {
+      return;
+    }
+
+    // Step 1: Create an appointment with proper headers
+    const officeSelect = document.getElementById("Choose");
+    const appointmentResponse = await fetch("/api/appointments", {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        officeId: officeSelect.value,
+        officeName: officeSelect.options[officeSelect.selectedIndex].text,
+        date: document.getElementById("appointmentDate").value,
+        timeSlot: document.getElementById("timeSlot").value,
+        type: getAppointmentType(),
+      }),
+    });
+
+    if (!appointmentResponse.ok) {
+      if (appointmentResponse.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      const errorData = await appointmentResponse.json();
+      throw new Error(errorData.error || "Failed to create appointment");
+    }
+
+    // Step 2: Collect property data for blockchain registration
     const propertyData = {
       propertyId: document.querySelector('input[placeholder="Property ID"]')
         .value,
@@ -1062,77 +1260,86 @@ async function handleFormSubmit(e) {
       ).value,
     };
 
-    // Register on blockchain
     const blockchainResult = await registerPropertyOnBlockchain(propertyData);
 
     if (!blockchainResult.success) {
       throw new Error(blockchainResult.error);
     }
 
-    // Create FormData instance
+    // Step 3: Prepare form data
     const formData = new FormData();
 
-    // Add the registration type
-    formData.append("registrationType", "NEW_PROPERTY");
+    // Add witnessInfo before ownerInfo (order matters)
+    formData.append(
+      "witnessInfo",
+      JSON.stringify({
+        firstName: document.querySelectorAll(
+          'input[placeholder="First Name"]'
+        )[1].value,
+        lastName: document.querySelectorAll('input[placeholder="Last Name"]')[1]
+          .value,
+        email: document.querySelectorAll(
+          'input[placeholder="Email Address"]'
+        )[1].value,
+        phone: document.querySelectorAll('input[placeholder="Phone Number"]')[1]
+          .value,
+        idNumber: document.querySelectorAll(
+          'input[placeholder="Aadhar / PAN Number"]'
+        )[1].value,
+        permanentAddress: document.querySelectorAll(
+          'input[placeholder="Permanent Address"]'
+        )[1].value,
+        currentAddress: document.querySelectorAll(
+          'input[placeholder="Current Address"]'
+        )[1].value,
+      })
+    );
 
-    // Add owner information
-    const ownerInfo = {
-      firstName: document.querySelector('input[placeholder="First Name"]')
-        .value,
-      lastName: document.querySelector('input[placeholder="Last Name"]').value,
-      email: document.querySelector('input[placeholder="Email Address"]').value,
-      phone: document.querySelector('input[placeholder="Phone Number"]').value,
-      idNumber: document.querySelector(
-        'input[placeholder="Aadhar / PAN Number"]'
-      ).value,
-      permanentAddress: document.querySelector(
-        'input[placeholder="Permanent Address"]'
-      ).value,
-      currentAddress: document.querySelector(
-        'input[placeholder="Current Address"]'
-      ).value,
-      blockchainId: blockchainResult.blockchainId,
-    };
-    formData.append("ownerInfo", JSON.stringify(ownerInfo));
+    formData.append(
+      "ownerInfo",
+      JSON.stringify({
+        firstName: document.querySelector('input[placeholder="First Name"]')
+          .value,
+        lastName: document.querySelector('input[placeholder="Last Name"]')
+          .value,
+        email: document.querySelector('input[placeholder="Email Address"]')
+          .value,
+        phone: document.querySelector('input[placeholder="Phone Number"]')
+          .value,
+        idNumber: document.querySelector(
+          'input[placeholder="Aadhar / PAN Number"]'
+        ).value,
+        permanentAddress: document.querySelector(
+          'input[placeholder="Permanent Address"]'
+        ).value,
+        currentAddress: document.querySelector(
+          'input[placeholder="Current Address"]'
+        ).value,
+        blockchainId: blockchainResult.blockchainId,
+      })
+    );
 
-    // Add property information
-    const propertyInfo = {
-      ...propertyData,
-      blockchainId: blockchainResult.blockchainId,
-      transactionHash: blockchainResult.transactionHash,
-    };
-    formData.append("propertyInfo", JSON.stringify(propertyInfo));
+    formData.append(
+      "propertyInfo",
+      JSON.stringify({
+        ...propertyData,
+        blockchainId: blockchainResult.blockchainId,
+        transactionHash: blockchainResult.transactionHash,
+      })
+    );
 
-    // Add witness information
-    const witnessInfo = {
-      firstName: document.querySelectorAll('input[placeholder="First Name"]')[1]
-        .value,
-      lastName: document.querySelectorAll('input[placeholder="Last Name"]')[1]
-        .value,
-      email: document.querySelectorAll('input[placeholder="Email Address"]')[1]
-        .value,
-      phone: document.querySelectorAll('input[placeholder="Phone Number"]')[1]
-        .value,
-      idNumber: document.querySelectorAll(
-        'input[placeholder="Aadhar / PAN Number"]'
-      )[1].value,
-      permanentAddress: document.querySelectorAll(
-        'input[placeholder="Permanent Address"]'
-      )[1].value,
-      currentAddress: document.querySelectorAll(
-        'input[placeholder="Current Address"]'
-      )[1].value,
-    };
-    formData.append("witnessInfo", JSON.stringify(witnessInfo));
+    formData.append(
+      "appointmentInfo",
+      JSON.stringify({
+        office: document.getElementById("Choose").value,
+        date: document.getElementById("appointmentDate").value,
+        timeSlot: document.getElementById("timeSlot").value,
+      })
+    );
 
-    // Add appointment information
-    const appointmentInfo = {
-      office: document.getElementById("Choose")?.value || "",
-      datetime: document.getElementById("date")?.value || "",
-    };
-    formData.append("appointmentInfo", JSON.stringify(appointmentInfo));
+    formData.append("registrationType", "new_registration");
 
-    // Add document files
+    // Attach files with proper error handling
     const documentTypes = [
       "saleDeed",
       "taxReceipts",
@@ -1150,32 +1357,33 @@ async function handleFormSubmit(e) {
       }
     });
 
-    // Submit to backend
+    // Step 4: Submit data to the backend with proper headers
     const response = await fetch("/api/register-property", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${getToken()}`,
-        // Note: Don't set Content-Type when using FormData
+        Authorization: `Bearer ${token}`,
+        // Remove Content-Type header - let browser set it with boundary for FormData
       },
       body: formData,
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.error("Server response:", errorData);
       throw new Error(errorData.message || `Server error: ${response.status}`);
     }
 
     const responseData = await response.json();
+    console.log("Registration successful:", responseData);
 
-    // Show success message
-    alert(
-      `Property registered successfully!\nBlockchain ID: ${blockchainResult.blockchainId}\nTransaction Hash: ${blockchainResult.transactionHash}`
-    );
-
-    // Redirect to success page
+    alert("Property registered successfully!");
     window.location.href = "./registered.html";
   } catch (error) {
     console.error("Registration failed:", error);
+    if (error.message.includes("No authentication token found")) {
+      window.location.href = "/login.html";
+      return;
+    }
     alert(`Registration failed: ${error.message}`);
   } finally {
     submitButton.disabled = false;
@@ -1334,8 +1542,31 @@ function setupEventListeners() {
     });
   });
 
+  // Setup appointment date picker
+  setupAppointmentDatePicker();
+
+  // Setup office selection change handler
+  const officeSelect = document.getElementById("Choose");
+  if (officeSelect) {
+    officeSelect.addEventListener("change", () => {
+      updateTimeSlots();
+    });
+  }
+
+  // Setup city input change handler for office updates
+  const cityInput = document.querySelector('input[placeholder="City"]');
+  if (cityInput) {
+    cityInput.addEventListener("change", () => {
+      const appointmentDate = document.getElementById("appointmentDate");
+      if (appointmentDate.value) {
+        updateRegistrarOffices();
+      }
+    });
+  }
+
   // Date validation
   setupDateValidation();
+  setupAppointmentDatePicker();
 
   // Purchase value and stamp duty calculation
   setupPurchaseValueCalculation();
@@ -1349,12 +1580,22 @@ function setupEventListeners() {
 
 // Setup date validation
 function setupDateValidation() {
-  const transactionDateInput = document.querySelector('input[type="date"]');
-  if (transactionDateInput) {
-    const today = new Date().toISOString().split("T")[0];
-    transactionDateInput.setAttribute("max", today);
+  // Transaction date validation - must not be in future
+  const transactionDateInput = document.querySelector(
+    'section:not(.appointment-details) input[type="date"]'
+  );
 
-    transactionDateInput.addEventListener("input", function () {
+  if (transactionDateInput) {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    const maxDate = `${year}-${month}-${day}`;
+
+    transactionDateInput.setAttribute("max", maxDate);
+    transactionDateInput.value = maxDate;
+
+    transactionDateInput.addEventListener("change", function () {
       const selectedDate = new Date(this.value);
       const currentDate = new Date();
 
@@ -1362,7 +1603,7 @@ function setupDateValidation() {
       currentDate.setHours(0, 0, 0, 0);
 
       if (selectedDate > currentDate) {
-        this.value = today;
+        this.value = maxDate;
         alert("Transaction date cannot be in the future");
       }
     });

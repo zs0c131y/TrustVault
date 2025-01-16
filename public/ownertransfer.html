@@ -237,21 +237,19 @@
 
           <section class="appointement-details">
             <h2>Appointment Details</h2>
-            <select id="Choose" class="dropdown-select">
+            <input
+              type="date"
+              id="appointmentDate"
+              class="dropdown-select"
+              required
+            />
+            <select id="Choose" class="dropdown-select" disabled>
               <option value="register" disabled selected>
                 Choose Sub-Registrar Office
               </option>
-              <option value="office1">Sub-Registrar Office 1</option>
-              <option value="office2">Sub-Registrar Office 2</option>
-              <option value="office3">Sub-Registrar Office 3</option>
             </select>
-            <select id="date" class="dropdown-select">
-              <option value="date" disabled selected>
-                Choose Date and Time
-              </option>
-              <option value="date1">Sub-Registrar Office 1</option>
-              <option value="date2">Sub-Registrar Office 2</option>
-              <option value="date3">Sub-Registrar Office 3</option>
+            <select id="timeSlot" class="dropdown-select" disabled>
+              <option value="" disabled selected>Choose Time Slot</option>
             </select>
           </section>
         </div>
