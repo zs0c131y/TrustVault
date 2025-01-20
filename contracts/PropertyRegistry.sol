@@ -3,51 +3,49 @@ pragma solidity ^0.8.0;
 
 contract PropertyRegistry {
     struct Property {
-        string propertyId;          // Original system property ID
-        string propertyName;        // Name/title of the property
-        string location;           // Property location
-        string propertyType;       // Type of property
-        address owner;             // Owner's ethereum address
-        uint256 registrationDate;  // Registration timestamp
-        bool isVerified;          // Verification status
-        uint256 lastTransferDate; // Date of last ownership transfer
+        string propertyId;
+        string propertyName;
+        string location;
+        string propertyType;
+        address owner;
+        uint256 registrationDate;
+        bool isVerified;
+        uint256 lastTransferDate;
     }
-    
-    // Mapping from blockchain ID (address) to Property
+
     mapping(address => Property) public properties;
     mapping(string => address) public propertyIdToAddress;
-    
-    // Event emitted when new property is registered
+
     event PropertyRegistered(
         address indexed blockchainId,
         string propertyId,
         string propertyName,
-        address owner
+        address indexed owner
     );
-    
-    // Event emitted when property is verified
+
     event PropertyVerified(address indexed blockchainId);
 
-    // Event emitted when property ownership is transferred
     event OwnershipTransferred(
         address indexed blockchainId,
         address indexed previousOwner,
         address indexed newOwner,
         uint256 transferDate
     );
-    
-    // Function to register new property
+
     function registerProperty(
-    string memory _propertyId,
-    string memory _propertyName,
-    string memory _location,
-    string memory _propertyType
-) public returns (address) {
-        // Generate a unique blockchain ID based on property details
-        address blockchainId = address(uint160(uint(keccak256(abi.encodePacked(_propertyId, block.timestamp)))));
-        propertyIdToAddress[_propertyId] = blockchainId;
+        string memory _propertyId,
+        string memory _propertyName,
+        string memory _location,
+        string memory _propertyType
+    ) public returns (address) {
+        // Generate deterministic address using keccak256
+        bytes32 hash = keccak256(
+            abi.encodePacked(_propertyId, _propertyName, _location)
+        );
+        address blockchainId = address(uint160(uint256(hash)));
         
-        // Create new property
+        require(bytes(properties[blockchainId].propertyId).length == 0, "Property already exists");
+        
         properties[blockchainId] = Property({
             propertyId: _propertyId,
             propertyName: _propertyName,
@@ -58,36 +56,64 @@ contract PropertyRegistry {
             isVerified: false,
             lastTransferDate: block.timestamp
         });
+
+        propertyIdToAddress[_propertyId] = blockchainId;
         
-        emit PropertyRegistered(blockchainId, _propertyId, _propertyName, msg.sender);
+        emit PropertyRegistered(
+            blockchainId,
+            _propertyId,
+            _propertyName,
+            msg.sender
+        );
+
         return blockchainId;
     }
-    
-    // Function to verify property (only by authorized verifier)
-    function verifyProperty(address _blockchainId) public {
-        // Add proper authorization checks here
-        require(properties[_blockchainId].owner != address(0), "Property does not exist");
-        properties[_blockchainId].isVerified = true;
-        emit PropertyVerified(_blockchainId);
-    }
-    
-    // Function to transfer property ownership
-    function transferOwnership(address _blockchainId, address _newOwner) public {
-        require(properties[_blockchainId].owner != address(0), "Property does not exist");
-        require(properties[_blockchainId].owner == msg.sender, "Only current owner can transfer property");
-        require(_newOwner != address(0), "Invalid new owner address");
-        require(properties[_blockchainId].isVerified, "Property must be verified before transfer");
 
-        address previousOwner = properties[_blockchainId].owner;
-        properties[_blockchainId].owner = _newOwner;
-        properties[_blockchainId].lastTransferDate = block.timestamp;
-
-        emit OwnershipTransferred(_blockchainId, previousOwner, _newOwner, block.timestamp);
+    function getProperty(address blockchainId) public view returns (
+        string memory propertyId,
+        string memory propertyName,
+        string memory location,
+        string memory propertyType,
+        address owner,
+        uint256 registrationDate,
+        bool isVerified,
+        uint256 lastTransferDate
+    ) {
+        Property storage prop = properties[blockchainId];
+        require(bytes(prop.propertyId).length > 0, "Property not found");
+        
+        return (
+            prop.propertyId,
+            prop.propertyName,
+            prop.location,
+            prop.propertyType,
+            prop.owner,
+            prop.registrationDate,
+            prop.isVerified,
+            prop.lastTransferDate
+        );
     }
-    
-    // Function to get property details
-    function getProperty(address _blockchainId) public view returns (Property memory) {
-        require(properties[_blockchainId].owner != address(0), "Property does not exist");
-        return properties[_blockchainId];
+
+    function verifyProperty(address blockchainId) public {
+        require(bytes(properties[blockchainId].propertyId).length > 0, "Property not found");
+        properties[blockchainId].isVerified = true;
+        emit PropertyVerified(blockchainId);
+    }
+
+    function transferOwnership(address blockchainId, address newOwner) public {
+        require(bytes(properties[blockchainId].propertyId).length > 0, "Property not found");
+        require(properties[blockchainId].owner == msg.sender, "Not the owner");
+        require(newOwner != address(0), "Invalid new owner");
+
+        address previousOwner = properties[blockchainId].owner;
+        properties[blockchainId].owner = newOwner;
+        properties[blockchainId].lastTransferDate = block.timestamp;
+
+        emit OwnershipTransferred(
+            blockchainId,
+            previousOwner,
+            newOwner,
+            block.timestamp
+        );
     }
 }

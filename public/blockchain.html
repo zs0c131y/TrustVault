@@ -52,13 +52,15 @@
       <!-- Blockchain Data Section -->
       <div id="blockchainDataContainer" class="blockchain-data-container">
         <div class="data-tabs">
-          <button class="tab-button active" data-tab="property">
+          <button class="tab-button active" onclick="switchTab('propertyTab')">
             Property Data
           </button>
-          <button class="tab-button" data-tab="transaction">
+          <button class="tab-button" onclick="switchTab('transactionTab')">
             Transaction Data
           </button>
-          <button class="tab-button" data-tab="events">Events</button>
+          <button class="tab-button" onclick="switchTab('eventsTab')">
+            Events
+          </button>
         </div>
         <div class="tab-content" id="propertyTab">
           <!-- Property data will be inserted here -->

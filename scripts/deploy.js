@@ -1,41 +1,48 @@
+const hre = require("hardhat");
+const fs = require("fs");
+const path = require("path");
+
 async function main() {
-  const [deployer] = await ethers.getSigners();
+  console.log("Starting deployment...");
 
-  console.log("Deploying contracts with the account:", deployer.address);
-  console.log(
-    "Account balance:",
-    await ethers.provider.getBalance(deployer.address)
-  );
-
-  const PropertyRegistry = await ethers.getContractFactory("PropertyRegistry");
-  const propertyRegistry = await PropertyRegistry.deploy();
-
-  // Wait for the deployment transaction to be mined
-  await propertyRegistry.waitForDeployment();
-
-  // Get the deployed contract address
-  const contractAddress = await propertyRegistry.getAddress();
-  console.log("PropertyRegistry deployed to:", contractAddress);
-
-  // Store the contract addresses for frontend use
-  const fs = require("fs");
-  const contractsDir = __dirname + "/../public/contracts";
-
-  if (!fs.existsSync(contractsDir)) {
-    fs.mkdirSync(contractsDir, { recursive: true });
+  // Ensure the contract artifacts directory exists
+  const artifactsDir = path.join(__dirname, "../public/contracts");
+  if (!fs.existsSync(artifactsDir)) {
+    fs.mkdirSync(artifactsDir, { recursive: true });
   }
 
+  // Deploy the contract
+  const PropertyRegistry = await hre.ethers.getContractFactory(
+    "PropertyRegistry"
+  );
+  const propertyRegistry = await PropertyRegistry.deploy();
+  await propertyRegistry.waitForDeployment();
+
+  const address = await propertyRegistry.getAddress();
+  console.log("PropertyRegistry deployed to:", address);
+
+  // Save the contract address
+  const addressFile = path.join(artifactsDir, "contract-address.json");
   fs.writeFileSync(
-    contractsDir + "/contract-address.json",
-    JSON.stringify({ PropertyRegistry: contractAddress }, undefined, 2)
+    addressFile,
+    JSON.stringify({ PropertyRegistry: address }, null, 2)
+  );
+  console.log("Contract address saved to:", addressFile);
+
+  // Copy the contract artifact
+  const artifactSource = path.join(
+    hre.config.paths.artifacts,
+    "contracts/PropertyRegistry.sol/PropertyRegistry.json"
+  );
+  const artifactDest = path.join(
+    artifactsDir,
+    "contracts/PropertyRegistry.sol/PropertyRegistry.json"
   );
 
-  // Also save the contract ABI
-  const artifact = require("../artifacts/contracts/PropertyRegistry.sol/PropertyRegistry.json");
-  fs.writeFileSync(
-    contractsDir + "/PropertyRegistry.json",
-    JSON.stringify(artifact, null, 2)
-  );
+  // Ensure the destination directory exists
+  fs.mkdirSync(path.dirname(artifactDest), { recursive: true });
+  fs.copyFileSync(artifactSource, artifactDest);
+  console.log("Contract artifact copied to:", artifactDest);
 }
 
 main()

@@ -12,9 +12,11 @@ const xss = require("xss");
 const jwt = require("jsonwebtoken");
 const { body, validationResult } = require("express-validator");
 const fs = require("fs");
+const BlockchainSync = require("./services/BlockchainSync");
 
 // Module-level variables
 let db = null;
+let blockchainSync;
 
 // Initialize express app and environment variables
 const app = express();
@@ -389,6 +391,24 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "./public/home.html"));
 });
 
+// Internal routing - Metamask RPC proxy
+app.post("/", async (req, res) => {
+  try {
+    const response = await fetch("http://127.0.0.1:8545", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(req.body),
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("RPC Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // Authentication Routes
 app.post("/login", async (req, res) => {
   try {
@@ -483,6 +503,7 @@ app.get("/getUserData", enhancedVerifyToken, async (req, res) => {
   }
 });
 
+// Route to register property
 app.post(
   "/api/register-property",
   enhancedVerifyToken,
@@ -497,21 +518,37 @@ app.post(
     { name: "photoCertificate", maxCount: 1 },
   ]),
   async (req, res) => {
+    console.log("Starting property registration process...");
     try {
       const db = client.db(dbName);
       const registrations = db.collection("registrationRequests");
 
-      let ownerInfo, propertyInfo, witnessInfo, appointmentInfo;
+      let ownerInfo,
+        propertyInfo,
+        witnessInfo,
+        appointmentInfo,
+        registrationType;
       try {
         ownerInfo = JSON.parse(req.body.ownerInfo);
         propertyInfo = JSON.parse(req.body.propertyInfo);
         witnessInfo = JSON.parse(req.body.witnessInfo);
         appointmentInfo = JSON.parse(req.body.appointmentInfo);
         registrationType = "new_registration";
+
+        console.log("Parsed registration data:", {
+          propertyInfo: { ...propertyInfo, sensitiveData: "[REDACTED]" },
+          ownerInfo: { ...ownerInfo, sensitiveData: "[REDACTED]" },
+        });
       } catch (error) {
-        return res.status(400).json({ error: "Invalid JSON data" });
+        console.error("JSON parsing error:", error);
+        return res.status(400).json({
+          error: "Invalid JSON data",
+          details:
+            process.env.NODE_ENV === "development" ? error.message : undefined,
+        });
       }
 
+      // Process uploaded documents
       const documents = {};
       if (req.files) {
         Object.keys(req.files).forEach((key) => {
@@ -519,6 +556,7 @@ app.post(
         });
       }
 
+      // Create registration request
       const registration = {
         ownerInfo,
         propertyInfo,
@@ -533,22 +571,77 @@ app.post(
         ipAddress: req.ip,
       };
 
+      // Save registration request
+      console.log("Saving registration request...");
       const result = await registrations.insertOne(registration);
+      console.log("Registration saved with ID:", result.insertedId);
 
+      // Handle blockchain synchronization
+      if (propertyInfo.blockchainId && propertyInfo.transactionHash) {
+        console.log("Initiating blockchain sync with data:", {
+          blockchainId: propertyInfo.blockchainId,
+          transactionHash: propertyInfo.transactionHash,
+        });
+
+        try {
+          const propertyDataForSync = {
+            propertyId: propertyInfo.propertyId,
+            blockchainId: propertyInfo.blockchainId,
+            propertyName: propertyInfo.propertyName || "Property",
+            location: propertyInfo.location || "Not specified",
+            propertyType: propertyInfo.propertyType || "residential",
+            owner: ownerInfo.walletAddress || ownerInfo.email,
+            isVerified: false,
+          };
+
+          console.log("Prepared property data for sync:", propertyDataForSync);
+
+          const syncResult = await blockchainSync.syncPropertyToMongoDB(
+            propertyDataForSync,
+            propertyInfo.transactionHash
+          );
+
+          console.log("Blockchain sync completed:", syncResult);
+        } catch (syncError) {
+          console.error("Blockchain sync failed:", syncError);
+          // Don't fail the registration if sync fails
+        }
+      } else {
+        console.log("Skipping blockchain sync - missing required data:", {
+          hasBlockchainId: !!propertyInfo.blockchainId,
+          hasTransactionHash: !!propertyInfo.transactionHash,
+        });
+      }
+
+      // Create audit log entry
+      console.log("Creating audit log entry...");
       await db.collection("auditLog").insertOne({
         action: "PROPERTY_REGISTRATION",
         userId: req.user.email,
         registrationId: result.insertedId,
         timestamp: new Date(),
         ipAddress: req.ip,
+        blockchainData: propertyInfo.blockchainId
+          ? {
+              blockchainId: propertyInfo.blockchainId,
+              transactionHash: propertyInfo.transactionHash,
+            }
+          : undefined,
       });
 
+      // Send success response
       res.status(201).json({
         message: "Registration request submitted successfully",
         registrationId: result.insertedId,
+        blockchainSync: propertyInfo.blockchainId ? "completed" : "skipped",
       });
     } catch (error) {
       console.error("Registration error:", error);
+      console.error("Full error details:", {
+        message: error.message,
+        stack: error.stack,
+      });
+
       res.status(500).json({
         message: "Failed to submit registration request",
         error:
@@ -900,6 +993,86 @@ app.get("/api/property/:pid", async (req, res) => {
     res.status(500).json({
       error: "Failed to fetch property data",
       details: error.message,
+    });
+  }
+});
+
+// Search status by txnHash
+app.get("/api/property/search-by-hash/:hash", async (req, res) => {
+  try {
+    const { hash } = req.params;
+    console.log("Searching for property with hash:", hash);
+
+    // Search in transactions
+    const property = await db.collection("blockchainTxns").findOne({
+      "transactions.transactionHash": hash,
+    });
+
+    if (!property) {
+      console.log("No property found with hash:", hash);
+      return res.status(404).json({
+        success: false,
+        error: "Property not found",
+      });
+    }
+
+    // Find the matching transaction
+    const transaction = property.transactions.find(
+      (tx) => tx.transactionHash === hash
+    );
+
+    console.log("Found property:", {
+      propertyId: property.propertyId,
+      transactionType: transaction?.type,
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        ...property,
+        matchedTransaction: transaction,
+      },
+    });
+  } catch (error) {
+    console.error("Error searching property by hash:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Add this to your server.js
+app.get("/api/property/search-by-id/:blockchainId", async (req, res) => {
+  try {
+    const { blockchainId } = req.params;
+    console.log("Searching for property with blockchainId:", blockchainId);
+
+    // Search in both current blockchainId and blockchainIds array
+    const property = await db.collection("blockchainTxns").findOne({
+      $or: [{ blockchainId: blockchainId }, { blockchainIds: blockchainId }],
+    });
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        error: "Property not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: property,
+    });
+  } catch (error) {
+    console.error("Error searching property by blockchainId:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
@@ -1315,6 +1488,9 @@ process.on("SIGINT", async () => {
 async function startServer() {
   try {
     await connectToMongoDB();
+    // Initialize BlockchainSync with MongoDB client
+    blockchainSync = new BlockchainSync(client, dbName);
+
     app.listen(port, () => {
       console.log(
         `Server running on port ${port} in ${process.env.NODE_ENV} mode`

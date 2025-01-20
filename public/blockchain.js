@@ -282,19 +282,24 @@ async function getPropertyDetails(address) {
       throw new Error("Invalid address format");
     }
 
-    const property = await contractInstance.methods.getProperty(address).call();
+    // Call properties mapping directly instead of getProperty function
+    const property = await contractInstance.methods.properties(address).call();
+
+    if (!property || !property.propertyId) {
+      throw new Error("Property not found");
+    }
 
     return {
       success: true,
       data: {
-        propertyId: property[0],
-        propertyName: property[1],
-        location: property[2],
-        propertyType: property[3],
-        owner: property[4],
-        registrationDate: property[5],
-        isVerified: property[6],
-        lastTransferDate: property[7],
+        propertyId: property.propertyId,
+        propertyName: property.propertyName,
+        location: property.location,
+        propertyType: property.propertyType,
+        owner: property.owner,
+        registrationDate: property.registrationDate,
+        isVerified: property.isVerified,
+        lastTransferDate: property.lastTransferDate,
         blockchainId: address,
       },
     };
@@ -310,67 +315,96 @@ async function getPropertyDetails(address) {
 // Debug
 async function getPropertyDetailsByTxHash(txHash) {
   try {
-    if (!web3Instance) {
-      await initializeBlockchain();
-    }
-
     console.log("Starting property verification for hash:", txHash);
 
-    if (!web3Instance.utils.isHexStrict(txHash)) {
-      throw new Error("Invalid transaction hash format");
+    // First check MongoDB for the transaction
+    const response = await fetch(`/api/property/search-by-hash/${txHash}`);
+    const responseData = await response.json();
+
+    if (response.ok && responseData.success) {
+      // If found in MongoDB, use that data
+      const propertyData = responseData.data;
+      const matchedTx = propertyData.matchedTransaction;
+
+      // Get blockchain confirmation
+      const receipt = await web3Instance.eth.getTransactionReceipt(
+        matchedTx.transactionHash
+      );
+      const block = await web3Instance.eth.getBlock(receipt.blockNumber);
+
+      return {
+        success: true,
+        data: {
+          propertyId: propertyData.propertyId,
+          propertyName: propertyData.propertyName,
+          location: propertyData.location,
+          propertyType: propertyData.propertyType,
+          owner: propertyData.owner,
+          registrationDate: matchedTx.timestamp,
+          isVerified: propertyData.isVerified,
+          blockchainId: propertyData.blockchainId,
+          transactionHash: matchedTx.transactionHash,
+          blockNumber: receipt.blockNumber,
+          timestamp: block.timestamp,
+          networkId: await web3Instance.eth.net.getId(),
+        },
+      };
+    } else {
+      // If not found in MongoDB, try blockchain directly
+      if (!web3Instance.utils.isHexStrict(txHash)) {
+        throw new Error("Invalid transaction hash format");
+      }
+
+      const receipt = await web3Instance.eth.getTransactionReceipt(txHash);
+      if (!receipt) {
+        throw new Error("Transaction not found on blockchain");
+      }
+
+      const transaction = await web3Instance.eth.getTransaction(txHash);
+      const block = await web3Instance.eth.getBlock(receipt.blockNumber);
+
+      // Try to get property details from blockchain
+      const eventSignature = web3Instance.utils.sha3(
+        "PropertyRegistered(address,string,string,address)"
+      );
+      const propertyEvent = receipt.logs.find(
+        (log) => log.topics[0] === eventSignature
+      );
+
+      if (!propertyEvent) {
+        throw new Error("Property registration event not found in transaction");
+      }
+
+      const decodedEvent = web3Instance.eth.abi.decodeLog(
+        [
+          { type: "address", name: "blockchainId", indexed: true },
+          { type: "string", name: "propertyId" },
+          { type: "string", name: "propertyName" },
+          { type: "address", name: "owner" },
+        ],
+        propertyEvent.data,
+        [propertyEvent.topics[1]]
+      );
+
+      const blockchainId = decodedEvent.blockchainId;
+      const propertyDetails = await getPropertyDetails(blockchainId);
+
+      if (!propertyDetails.success) {
+        throw new Error(propertyDetails.error);
+      }
+
+      return {
+        success: true,
+        data: {
+          ...propertyDetails.data,
+          blockchainId: blockchainId,
+          transactionHash: txHash,
+          blockNumber: receipt.blockNumber,
+          networkId: await web3Instance.eth.net.getId(),
+          timestamp: block.timestamp,
+        },
+      };
     }
-
-    const receipt = await web3Instance.eth.getTransactionReceipt(txHash);
-    if (!receipt) {
-      throw new Error("Transaction not found");
-    }
-
-    const transaction = await web3Instance.eth.getTransaction(txHash);
-    if (!transaction) {
-      throw new Error("Transaction details not found");
-    }
-
-    const eventSignature = web3Instance.utils.sha3(
-      "PropertyRegistered(address,string,string,address)"
-    );
-    const propertyEvent = receipt.logs.find(
-      (log) => log.topics[0] === eventSignature
-    );
-
-    if (!propertyEvent) {
-      throw new Error("Property registration event not found in transaction");
-    }
-
-    const decodedEvent = web3Instance.eth.abi.decodeLog(
-      [
-        { type: "address", name: "blockchainId", indexed: true },
-        { type: "string", name: "propertyId" },
-        { type: "string", name: "propertyName" },
-        { type: "address", name: "owner" },
-      ],
-      propertyEvent.data,
-      [propertyEvent.topics[1]]
-    );
-
-    // Get property details using the blockchain ID from the event
-    const blockchainId = decodedEvent.blockchainId;
-    const propertyDetails = await getPropertyDetails(blockchainId);
-    if (!propertyDetails.success) {
-      throw new Error(propertyDetails.error);
-    }
-
-    return {
-      success: true,
-      data: {
-        ...propertyDetails.data,
-        blockchainId: blockchainId, // Ensure blockchain ID is included
-        transactionHash: txHash,
-        blockNumber: receipt.blockNumber,
-        networkId: await web3Instance.eth.net.getId(),
-        timestamp: (await web3Instance.eth.getBlock(receipt.blockNumber))
-          .timestamp,
-      },
-    };
   } catch (error) {
     console.error("Error in getPropertyDetailsByTxHash:", error);
     return {
@@ -384,33 +418,30 @@ async function getPropertyDetailsByBlockchainId(blockchainId) {
   try {
     console.log("Getting property details for blockchain ID:", blockchainId);
 
-    // Validate the blockchain ID format
     if (!web3Instance.utils.isAddress(blockchainId)) {
       throw new Error("Invalid blockchain ID format");
     }
 
-    // Get property details using the blockchain ID
+    // Use properties mapping directly
     const property = await contractInstance.methods
-      .getProperty(blockchainId)
+      .properties(blockchainId)
       .call();
 
-    console.log("Retrieved property details:", property);
-
-    // Check if property exists (you might want to adjust this check based on your contract implementation)
-    if (!property.propertyId || property.propertyId === "") {
+    if (!property || !property.propertyId) {
       throw new Error("Property not found for this blockchain ID");
     }
 
     return {
       success: true,
       data: {
-        propertyId: property[0],
-        propertyName: property[1],
-        location: property[2],
-        propertyType: property[3],
-        owner: property[4],
-        registrationDate: property[5],
-        isVerified: property[6],
+        propertyId: property.propertyId,
+        propertyName: property.propertyName,
+        location: property.location,
+        propertyType: property.propertyType,
+        owner: property.owner,
+        registrationDate: property.registrationDate,
+        isVerified: property.isVerified,
+        lastTransferDate: property.lastTransferDate,
         blockchainId: blockchainId,
       },
     };
@@ -427,41 +458,48 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
   const container = document.getElementById("blockchainDataContainer");
   container.style.display = "block";
 
+  // Default to property tab
+  switchTab("propertyTab");
+
   // Property Tab Content
   const propertyTab = document.getElementById("propertyTab");
   propertyTab.innerHTML = `
     <div class="data-item">
       <div class="data-label">Property ID</div>
-      <div class="data-value">${propertyData.propertyId}</div>
+      <div class="data-value">${propertyData.propertyId || "N/A"}</div>
     </div>
     <div class="data-item">
       <div class="data-label">Property Name</div>
-      <div class="data-value">${propertyData.propertyName}</div>
+      <div class="data-value">${propertyData.propertyName || "N/A"}</div>
     </div>
     <div class="data-item">
       <div class="data-label">Location</div>
-      <div class="data-value">${propertyData.location}</div>
+      <div class="data-value">${propertyData.location || "N/A"}</div>
     </div>
     <div class="data-item">
       <div class="data-label">Property Type</div>
-      <div class="data-value">${propertyData.propertyType}</div>
+      <div class="data-value">${propertyData.propertyType || "N/A"}</div>
     </div>
     <div class="data-item">
       <div class="data-label">Owner</div>
       <div class="data-value">
-        ${propertyData.owner}
-        <button class="copy-button" onclick="navigator.clipboard.writeText('${
+        ${propertyData.owner || "N/A"}
+        ${
           propertyData.owner
-        }')">
-          Copy
-        </button>
+            ? `<button class="copy-button" onclick="navigator.clipboard.writeText('${propertyData.owner}')">Copy</button>`
+            : ""
+        }
       </div>
     </div>
     <div class="data-item">
       <div class="data-label">Registration Date</div>
-      <div class="data-value">${new Date(
-        Number(propertyData.registrationDate) * 1000
-      ).toLocaleString()}</div>
+      <div class="data-value">${
+        propertyData.registrationDate
+          ? new Date(
+              Number(propertyData.registrationDate) * 1000
+            ).toLocaleString()
+          : "N/A"
+      }</div>
     </div>
     <div class="data-item">
       <div class="data-label">Verification Status</div>
@@ -478,9 +516,7 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
       <div class="data-label">Transaction Hash</div>
       <div class="data-value">
         ${txHash}
-        <button class="copy-button" onclick="navigator.clipboard.writeText('${txHash}')">
-          Copy
-        </button>
+        <button class="copy-button" onclick="navigator.clipboard.writeText('${txHash}')">Copy</button>
       </div>
     </div>
     <div class="data-item">
@@ -519,37 +555,36 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
 
   // Events Tab Content
   const eventsTab = document.getElementById("eventsTab");
-  const blockchainId =
-    propertyData.blockchainId || (events[0] && events[0].blockchainId);
-
-  eventsTab.innerHTML = events
-    .map(
-      (event) => `
+  eventsTab.innerHTML =
+    events && events.length > 0
+      ? events
+          .map(
+            (event) => `
     <div class="event-item">
       <div class="event-name">PropertyRegistered Event</div>
       <div class="event-data">
         <div class="data-item">
           <div class="data-label">Owner</div>
           <div class="data-value">
-            ${event.owner}
-            <button class="copy-button" onclick="navigator.clipboard.writeText('${
+            ${event.owner || "N/A"}
+            ${
               event.owner
-            }')">
-              Copy
-            </button>
+                ? `<button class="copy-button" onclick="navigator.clipboard.writeText('${event.owner}')">Copy</button>`
+                : ""
+            }
           </div>
         </div>
         <div class="data-item">
           <div class="data-label">Property ID</div>
-          <div class="data-value">${event.propertyId}</div>
+          <div class="data-value">${event.propertyId || "N/A"}</div>
         </div>
         <div class="data-item">
           <div class="data-label">Blockchain ID</div>
           <div class="data-value">
-            ${blockchainId || "N/A"}
+            ${propertyData.blockchainId || "N/A"}
             ${
-              blockchainId
-                ? `<button class="copy-button" onclick="navigator.clipboard.writeText('${blockchainId}')">Copy</button>`
+              propertyData.blockchainId
+                ? `<button class="copy-button" onclick="navigator.clipboard.writeText('${propertyData.blockchainId}')">Copy</button>`
                 : ""
             }
           </div>
@@ -557,25 +592,32 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
       </div>
     </div>
   `
-    )
-    .join("");
+          )
+          .join("")
+      : '<div class="no-events">No events found</div>';
+}
 
-  // Set up tab switching
-  const tabButtons = document.querySelectorAll(".tab-button");
-  const tabContents = document.querySelectorAll(".tab-content");
-
-  tabButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      // Remove active class from all buttons and hide all contents
-      tabButtons.forEach((btn) => btn.classList.remove("active"));
-      tabContents.forEach((content) => content.classList.add("hidden"));
-
-      // Add active class to clicked button and show corresponding content
-      button.classList.add("active");
-      const tabId = button.getAttribute("data-tab") + "Tab";
-      document.getElementById(tabId).classList.remove("hidden");
-    });
+function switchTab(tabName) {
+  // Hide all tab contents
+  document.querySelectorAll(".tab-content").forEach((tab) => {
+    tab.classList.remove("active");
+    tab.style.display = "none";
   });
+
+  // Remove active class from all buttons
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.classList.remove("active");
+  });
+
+  // Show selected tab content
+  const selectedTab = document.getElementById(tabName);
+  selectedTab.style.display = "block";
+  selectedTab.classList.add("active");
+
+  // Add active class to selected button
+  document
+    .querySelector(`button[onclick="switchTab('${tabName}')"]`)
+    .classList.add("active");
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -603,6 +645,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       connectButton.disabled = false;
       connectButton.textContent = "Connect Wallet";
     }
+  });
+
+  // Add tab functionality
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.addEventListener("click", (e) => {
+      const tabName = e.target.getAttribute("onclick").match(/'(.*?)'/)[1];
+      switchTab(tabName);
+    });
   });
 
   // Check if wallet is already connected
@@ -834,6 +884,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 function createVerifiedProperty(propertyData) {
+  const formatDate = (timestamp) => {
+    if (!timestamp) return "N/A";
+    try {
+      return new Date(Number(timestamp) * 1000).toLocaleDateString();
+    } catch (e) {
+      return "N/A";
+    }
+  };
+
   return `
     <div class="property-details">
       ${
@@ -849,18 +908,24 @@ function createVerifiedProperty(propertyData) {
           ? '<img src="./assets/verified.png" class="verification-badge">'
           : '<img src="./assets/notverified.png" class="verification-badge">'
       }
-      <div class="property-title">${propertyData.propertyName}</div>
-      <div class="address">${propertyData.propertyType}</div>
-      <div class="address-details">${propertyData.location}</div>
+      <div class="property-title">${
+        propertyData.propertyName || "Unnamed Property"
+      }</div>
+      <div class="address">${
+        propertyData.propertyType || "Type Not Specified"
+      }</div>
+      <div class="address-details">${
+        propertyData.location || "Location Not Specified"
+      }</div>
       <div class="address-details">
-        <small>Registration Date: ${new Date(
-          Number(propertyData.registrationDate) * 1000
-        ).toLocaleDateString()}</small>
+        <small>Registration Date: ${formatDate(
+          propertyData.registrationDate
+        )}</small>
       </div>
       <div class="address-details">
-        <small>Last Transfer: ${new Date(
-          Number(propertyData.lastTransferDate) * 1000
-        ).toLocaleDateString()}</small>
+        <small>Last Transfer: ${formatDate(
+          propertyData.lastTransferDate
+        )}</small>
       </div>
     </div>
   `;
