@@ -312,7 +312,7 @@ async function getPropertyDetails(address) {
   }
 }
 
-// Debug
+// Search by transaction hash
 async function getPropertyDetailsByTxHash(txHash) {
   try {
     console.log("Starting property verification for hash:", txHash);
@@ -325,21 +325,49 @@ async function getPropertyDetailsByTxHash(txHash) {
       throw new Error(responseData.error || "Failed to fetch property details");
     }
 
-    // Get the transaction receipt for UI display
-    const receipt = await web3Instance.eth.getTransactionReceipt(txHash);
-    const block = await web3Instance.eth.getBlock(receipt.blockNumber);
+    // Get the current blockchain status from the API response
+    const blockchainStatus = responseData.data.currentBlockchainStatus;
+    const currentBlockchainId = responseData.data.currentBlockchainId;
 
-    // Use the current blockchain status from the API response
+    if (!currentBlockchainId) {
+      throw new Error("Current blockchain ID not found");
+    }
+
+    // Get property from blockchain using current ID
+    let blockchainData = null;
+    try {
+      blockchainData = await contractInstance.methods
+        .properties(currentBlockchainId)
+        .call();
+    } catch (err) {
+      console.error("Error fetching blockchain data:", err);
+    }
+
+    // Get transaction data from blockchain
+    let txData = {};
+    try {
+      const receipt = await web3Instance.eth.getTransactionReceipt(txHash);
+      if (receipt) {
+        const block = await web3Instance.eth.getBlock(receipt.blockNumber);
+        txData = {
+          blockNumber: receipt.blockNumber,
+          timestamp: block.timestamp,
+          networkId: await web3Instance.eth.net.getId(),
+        };
+      }
+    } catch (err) {
+      console.error("Error fetching transaction data:", err);
+    }
+
+    // Combine all data
     return {
       success: true,
       data: {
-        ...responseData.data.currentBlockchainStatus,
-        blockchainId: responseData.data.currentBlockchainId,
+        ...blockchainData, // Current blockchain state
+        blockchainId: currentBlockchainId,
         originalBlockchainId: responseData.data.blockchainIds[0]?.id,
         transactionHash: txHash,
-        blockNumber: receipt.blockNumber,
-        timestamp: block.timestamp,
-        networkId: await web3Instance.eth.net.getId(),
+        ...txData, // Add transaction data if available
         blockchainHistory: responseData.data.blockchainIds,
         transactionHistory: responseData.data.transactions,
       },
@@ -353,6 +381,7 @@ async function getPropertyDetailsByTxHash(txHash) {
   }
 }
 
+// Search by blockchain ID
 async function getPropertyDetailsByBlockchainId(blockchainId) {
   try {
     console.log("Getting property details for blockchain ID:", blockchainId);
@@ -367,13 +396,51 @@ async function getPropertyDetailsByBlockchainId(blockchainId) {
       throw new Error(responseData.error || "Failed to fetch property details");
     }
 
-    // Use the current blockchain status from the API response
+    const currentBlockchainId = responseData.data.currentBlockchainId;
+    if (!currentBlockchainId) {
+      throw new Error("Current blockchain ID not found");
+    }
+
+    // Get current property data from blockchain
+    let blockchainData = null;
+    try {
+      blockchainData = await contractInstance.methods
+        .properties(currentBlockchainId)
+        .call();
+    } catch (err) {
+      console.error("Error fetching blockchain data:", err);
+    }
+
+    // Get transaction data if available in history
+    let txData = {};
+    const matchedEntry = responseData.data.blockchainIds.find(
+      (entry) => entry.id === blockchainId
+    );
+    if (matchedEntry?.txHash) {
+      try {
+        const receipt = await web3Instance.eth.getTransactionReceipt(
+          matchedEntry.txHash
+        );
+        if (receipt) {
+          const block = await web3Instance.eth.getBlock(receipt.blockNumber);
+          txData = {
+            transactionHash: matchedEntry.txHash,
+            blockNumber: receipt.blockNumber,
+            timestamp: block.timestamp,
+          };
+        }
+      } catch (err) {
+        console.error("Error fetching transaction data:", err);
+      }
+    }
+
     return {
       success: true,
       data: {
-        ...responseData.data.currentBlockchainStatus,
-        blockchainId: responseData.data.currentBlockchainId,
+        ...blockchainData, // Current blockchain state
+        blockchainId: currentBlockchainId,
         originalBlockchainId: responseData.data.blockchainIds[0]?.id,
+        ...txData, // Add transaction data if available
         blockchainHistory: responseData.data.blockchainIds,
         transactionHistory: responseData.data.transactions,
       },
