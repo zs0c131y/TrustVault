@@ -319,6 +319,174 @@ const enhancedVerifyToken = async (req, res, next) => {
   }
 };
 
+// Helper function to safely convert blockchain data
+function serializeBlockchainData(data) {
+  return {
+    owner: data.owner,
+    isVerified: data.isVerified,
+    lastTransferDate: data.lastTransferDate.toString(),
+    propertyId: data.propertyId,
+    propertyName: data.propertyName,
+    location: data.location,
+    propertyType: data.propertyType,
+    registrationDate: data.registrationDate.toString(),
+  };
+}
+
+// Search status by txnHash
+app.get("/api/property/search-by-hash/:hash", async (req, res) => {
+  try {
+    const { hash } = req.params;
+    console.log("Searching for property with transaction hash:", hash);
+
+    // Search in blockchainTxns collection for the hash in either arrays
+    const property = await db.collection("blockchainTxns").findOne({
+      $or: [
+        { "transactions.transactionHash": hash },
+        { "blockchainIds.txHash": hash },
+      ],
+    });
+
+    if (!property) {
+      console.log("No property found with hash:", hash);
+      return res.status(404).json({
+        success: false,
+        error: "Property not found",
+      });
+    }
+
+    // Get the current blockchain ID from the document
+    const currentBlockchainId = property.currentBlockchainId;
+    if (!currentBlockchainId) {
+      return res.status(404).json({
+        success: false,
+        error: "Current blockchain ID not found",
+      });
+    }
+
+    // Get current blockchain status using currentBlockchainId
+    let blockchainData = null;
+    try {
+      blockchainData = await blockchainSync.contract.methods
+        .properties(currentBlockchainId)
+        .call();
+
+      console.log(
+        "Retrieved blockchain data for current ID:",
+        currentBlockchainId
+      );
+    } catch (err) {
+      console.error("Error fetching blockchain data:", err);
+    }
+
+    // Convert any BigInt values to strings in property transactions
+    const serializedProperty = {
+      ...property,
+      transactions: property.transactions.map((tx) => ({
+        ...tx,
+        blockNumber: tx.blockNumber ? tx.blockNumber.toString() : null,
+      })),
+    };
+
+    const response = {
+      success: true,
+      data: {
+        ...serializedProperty,
+        currentBlockchainStatus: blockchainData
+          ? serializeBlockchainData(blockchainData)
+          : null,
+      },
+    };
+
+    return res.json(response);
+  } catch (error) {
+    console.error("Error searching property by hash:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Search by blockchain ID
+app.get(
+  "/api/property/search-by-blockchain-id/:blockchainId",
+  async (req, res) => {
+    try {
+      const { blockchainId } = req.params;
+      console.log("Searching for property with blockchain ID:", blockchainId);
+
+      // Search for the blockchain ID in either currentBlockchainId or blockchainIds array
+      const property = await db.collection("blockchainTxns").findOne({
+        $or: [
+          { currentBlockchainId: blockchainId },
+          {
+            blockchainIds: {
+              $elemMatch: {
+                id: blockchainId,
+              },
+            },
+          },
+        ],
+      });
+
+      if (!property) {
+        console.log("No property found with blockchain ID:", blockchainId);
+        return res.status(404).json({
+          success: false,
+          error: "Property not found",
+        });
+      }
+
+      // Get current blockchain status using currentBlockchainId
+      let blockchainData = null;
+      try {
+        blockchainData = await blockchainSync.contract.methods
+          .properties(property.currentBlockchainId)
+          .call();
+
+        console.log(
+          "Retrieved blockchain data for current ID:",
+          property.currentBlockchainId
+        );
+      } catch (err) {
+        console.error("Error fetching blockchain data:", err);
+      }
+
+      // Convert any BigInt values to strings in property transactions
+      const serializedProperty = {
+        ...property,
+        transactions: property.transactions.map((tx) => ({
+          ...tx,
+          blockNumber: tx.blockNumber ? tx.blockNumber.toString() : null,
+        })),
+      };
+
+      const response = {
+        success: true,
+        data: {
+          ...serializedProperty,
+          currentBlockchainStatus: blockchainData
+            ? serializeBlockchainData(blockchainData)
+            : null,
+        },
+      };
+
+      return res.json(response);
+    } catch (error) {
+      console.error("Error searching property by blockchain ID:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    }
+  }
+);
+
 app.use("/api", enhancedVerifyToken);
 
 // Input Sanitization Middleware
@@ -578,6 +746,11 @@ app.post(
 
       // Handle blockchain synchronization
       if (propertyInfo.blockchainId && propertyInfo.transactionHash) {
+        console.log("🔍 REGISTRATION: Received property data:", {
+          propertyId: propertyInfo.propertyId,
+          blockchainId: propertyInfo.blockchainId,
+          transactionHash: propertyInfo.transactionHash,
+        });
         console.log("Initiating blockchain sync with data:", {
           blockchainId: propertyInfo.blockchainId,
           transactionHash: propertyInfo.transactionHash,
@@ -588,13 +761,20 @@ app.post(
             propertyId: propertyInfo.propertyId,
             blockchainId: propertyInfo.blockchainId,
             propertyName: propertyInfo.propertyName || "Property",
-            location: propertyInfo.location || "Not specified",
+            locality: propertyInfo.locality || "Not specified",
             propertyType: propertyInfo.propertyType || "residential",
             owner: ownerInfo.walletAddress || ownerInfo.email,
             isVerified: false,
           };
 
-          console.log("Prepared property data for sync:", propertyDataForSync);
+          console.log(
+            "🔍 REGISTRATION: Property data prepared for blockchain sync:",
+            {
+              propertyId: propertyDataForSync.propertyId,
+              blockchainId: propertyDataForSync.blockchainId,
+              locality: propertyDataForSync.locality,
+            }
+          );
 
           const syncResult = await blockchainSync.syncPropertyToMongoDB(
             propertyDataForSync,
@@ -993,86 +1173,6 @@ app.get("/api/property/:pid", async (req, res) => {
     res.status(500).json({
       error: "Failed to fetch property data",
       details: error.message,
-    });
-  }
-});
-
-// Search status by txnHash
-app.get("/api/property/search-by-hash/:hash", async (req, res) => {
-  try {
-    const { hash } = req.params;
-    console.log("Searching for property with hash:", hash);
-
-    // Search in transactions
-    const property = await db.collection("blockchainTxns").findOne({
-      "transactions.transactionHash": hash,
-    });
-
-    if (!property) {
-      console.log("No property found with hash:", hash);
-      return res.status(404).json({
-        success: false,
-        error: "Property not found",
-      });
-    }
-
-    // Find the matching transaction
-    const transaction = property.transactions.find(
-      (tx) => tx.transactionHash === hash
-    );
-
-    console.log("Found property:", {
-      propertyId: property.propertyId,
-      transactionType: transaction?.type,
-    });
-
-    return res.json({
-      success: true,
-      data: {
-        ...property,
-        matchedTransaction: transaction,
-      },
-    });
-  } catch (error) {
-    console.error("Error searching property by hash:", error);
-    return res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
-  }
-});
-
-// Add this to your server.js
-app.get("/api/property/search-by-id/:blockchainId", async (req, res) => {
-  try {
-    const { blockchainId } = req.params;
-    console.log("Searching for property with blockchainId:", blockchainId);
-
-    // Search in both current blockchainId and blockchainIds array
-    const property = await db.collection("blockchainTxns").findOne({
-      $or: [{ blockchainId: blockchainId }, { blockchainIds: blockchainId }],
-    });
-
-    if (!property) {
-      return res.status(404).json({
-        success: false,
-        error: "Property not found",
-      });
-    }
-
-    return res.json({
-      success: true,
-      data: property,
-    });
-  } catch (error) {
-    console.error("Error searching property by blockchainId:", error);
-    return res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });

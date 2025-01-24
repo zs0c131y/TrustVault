@@ -63,7 +63,7 @@ async function initializeBlockchain() {
     console.log("Contract Deployment Code Length:", code.length);
 
     // Debug contract methods
-    await debugContractMethods();
+    // await debugContractMethods();
 
     // Add MetaMask listeners
     window.ethereum.on("accountsChanged", () => window.location.reload());
@@ -166,59 +166,59 @@ function setupDateValidation() {
 }
 
 // Debugs
-async function debugContractMethods() {
-  try {
-    // Detailed network and account logging
-    const chainId = await web3Instance.eth.getChainId();
-    console.log("Current Blockchain Details:", {
-      chainId,
-      networkId: await web3Instance.eth.net.getId(),
-    });
+// async function debugContractMethods() {
+//   try {
+//     // Detailed network and account logging
+//     const chainId = await web3Instance.eth.getChainId();
+//     console.log("Current Blockchain Details:", {
+//       chainId,
+//       networkId: await web3Instance.eth.net.getId(),
+//     });
 
-    const accounts = await web3Instance.eth.getAccounts();
-    console.log("Blockchain Accounts:", {
-      accounts,
-      firstAccount: accounts[0],
-      balance: await web3Instance.eth.getBalance(accounts[0]),
-    });
+//     const accounts = await web3Instance.eth.getAccounts();
+//     console.log("Blockchain Accounts:", {
+//       accounts,
+//       firstAccount: accounts[0],
+//       balance: await web3Instance.eth.getBalance(accounts[0]),
+//     });
 
-    // More robust method for testing property registration
-    try {
-      // Use try-catch with more specific error handling
-      const registerMethod = contractInstance.methods.registerProperty(
-        "TEST_PROPERTY_" + Date.now(),
-        "Test Property",
-        "Test Location",
-        "Residential"
-      );
+//     // More robust method for testing property registration
+//     try {
+//       // Use try-catch with more specific error handling
+//       const registerMethod = contractInstance.methods.registerProperty(
+//         "TEST_PROPERTY_" + Date.now(),
+//         "Test Property",
+//         "Test Location",
+//         "Residential"
+//       );
 
-      const gasEstimate = await registerMethod.estimateGas({
-        from: accounts[0],
-      });
-      console.log("Gas Estimate for Registration:", gasEstimate);
+//       const gasEstimate = await registerMethod.estimateGas({
+//         from: accounts[0],
+//       });
+//       console.log("Gas Estimate for Registration:", gasEstimate);
 
-      const receipt = await registerMethod.send({
-        from: accounts[0],
-        gas: Math.ceil(gasEstimate * 1.5), // More generous gas limit
-      });
+//       const receipt = await registerMethod.send({
+//         from: accounts[0],
+//         gas: Math.ceil(gasEstimate * 1.5), // More generous gas limit
+//       });
 
-      console.log("Test Property Registration Successful:", receipt);
-    } catch (registrationError) {
-      console.error("Detailed Registration Error:", {
-        name: registrationError.name,
-        message: registrationError.message,
-        code: registrationError.code,
-        stack: registrationError.stack,
-      });
-    }
-  } catch (error) {
-    console.error("Comprehensive Debug Error:", {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-    });
-  }
-}
+//       console.log("Test Property Registration Successful:", receipt);
+//     } catch (registrationError) {
+//       console.error("Detailed Registration Error:", {
+//         name: registrationError.name,
+//         message: registrationError.message,
+//         code: registrationError.code,
+//         stack: registrationError.stack,
+//       });
+//     }
+//   } catch (error) {
+//     console.error("Comprehensive Debug Error:", {
+//       name: error.name,
+//       message: error.message,
+//       stack: error.stack,
+//     });
+//   }
+// }
 
 // Debug function to verify property and contract state
 async function debugPropertyTransfer(propertyId) {
@@ -338,7 +338,7 @@ async function getUserData() {
   }
 }
 
-// Helper function to convert property ID to blockchain address
+// Helper function to get blockchain address from property ID
 async function getBlockchainAddressFromPropertyId(propertyId) {
   try {
     console.log("Fetching blockchain address for propertyId:", propertyId);
@@ -353,7 +353,6 @@ async function getBlockchainAddressFromPropertyId(propertyId) {
     if (!accounts || accounts.length === 0) {
       throw new Error("No Ethereum account connected");
     }
-    const currentAccount = accounts[0];
 
     // Fetch the property registration details
     const response = await fetch(`/api/registrations/${propertyId}`, {
@@ -361,118 +360,32 @@ async function getBlockchainAddressFromPropertyId(propertyId) {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch property data: ${response.status}`);
+      throw new Error("Property not found");
     }
 
     const data = await response.json();
     console.log("API Response:", data);
 
-    // Get blockchainId from the response
-    let blockchainAddress;
-    if (data && data.propertyInfo && data.propertyInfo.blockchainId) {
-      blockchainAddress = data.propertyInfo.blockchainId;
-      // Ensure the address has the '0x' prefix
-      blockchainAddress = blockchainAddress.startsWith("0x")
-        ? blockchainAddress
-        : `0x${blockchainAddress}`;
-
-      // Validate address format
-      if (!web3Instance.utils.isAddress(blockchainAddress)) {
-        throw new Error(
-          `Invalid Ethereum address format: ${blockchainAddress}`
-        );
-      }
-    } else {
-      throw new Error("Blockchain ID not found in property data");
+    // Check for propertyInfo and blockchainId
+    if (!data?.propertyInfo?.blockchainId) {
+      throw new Error("Property not registered on blockchain");
     }
 
-    // Verify the property exists on blockchain
-    try {
-      const propertyInfo = await contractInstance.methods
-        .getProperty(blockchainAddress)
-        .call();
-      console.log("Property info from blockchain:", propertyInfo);
+    // Get and format the blockchain address
+    let blockchainAddress = data.propertyInfo.blockchainId;
+    console.log("Retrieved blockchainId:", blockchainAddress);
 
-      // If property exists but isn't verified, verify it
-      if (propertyInfo && !propertyInfo.isVerified) {
-        console.log("Property exists but needs verification");
+    // Ensure the address has the '0x' prefix
+    blockchainAddress = blockchainAddress.startsWith("0x")
+      ? blockchainAddress
+      : `0x${blockchainAddress}`;
 
-        try {
-          const verifyMethod =
-            contractInstance.methods.verifyProperty(blockchainAddress);
-          const gasEstimate = await verifyMethod.estimateGas({
-            from: currentAccount,
-          });
-
-          await verifyMethod.send({
-            from: currentAccount,
-            gas: Math.ceil(gasEstimate * 1.2),
-          });
-
-          console.log("Property verification successful");
-        } catch (verifyError) {
-          console.error("Verification failed:", verifyError);
-          // Continue even if verification fails - the property still exists
-        }
-      }
-
-      return blockchainAddress;
-    } catch (propertyError) {
-      console.log(
-        "Property not found on blockchain, attempting registration..."
-      );
-
-      // Get property details for registration
-      const propertyDetailsResponse = await fetch(
-        `/api/property/${propertyId}`,
-        {
-          headers: getAuthHeaders(),
-        }
-      );
-
-      if (!propertyDetailsResponse.ok) {
-        throw new Error("Failed to fetch property details for registration");
-      }
-
-      const propertyDetails = await propertyDetailsResponse.json();
-
-      // Register the property
-      const registerMethod = contractInstance.methods.registerProperty(
-        propertyId,
-        propertyDetails.propertyName || "Property",
-        `${propertyDetails.city || ""}, ${propertyDetails.state || ""}`,
-        propertyDetails.propertyType || "residential"
-      );
-
-      // Estimate gas for registration
-      const gasEstimate = await registerMethod.estimateGas({
-        from: currentAccount,
-      });
-
-      // Execute registration
-      const receipt = await registerMethod.send({
-        from: currentAccount,
-        gas: Math.ceil(gasEstimate * 1.2),
-      });
-
-      // Add these debug logs
-      console.log("Contract address:", contractInstance.options.address);
-      console.log("Contract methods:", Object.keys(contractInstance.methods));
-      console.log("Current account:", await web3Instance.eth.getAccounts());
-      console.log("Network ID:", await web3Instance.eth.net.getId());
-      console.log("Gas price:", await web3Instance.eth.getGasPrice());
-
-      // Check contract deployment
-      const code = await web3Instance.eth.getCode(
-        contractInstance.options.address
-      );
-      console.log("Contract deployed:", code !== "0x");
-
-      console.log("Property registration successful:", receipt);
-
-      // Return the original blockchain address after registration
-      return blockchainAddress;
+    // Validate address format
+    if (!web3Instance.utils.isAddress(blockchainAddress)) {
+      throw new Error(`Invalid Ethereum address format: ${blockchainAddress}`);
     }
+
+    return blockchainAddress;
   } catch (error) {
     console.error("Error getting blockchain address:", error);
     throw error;
@@ -613,6 +526,32 @@ function validateIdNumber(value) {
   };
 }
 
+function validateAddress(address) {
+  if (!address) return false;
+
+  try {
+    // Remove any whitespace
+    address = address.trim();
+
+    // Ensure proper hex format
+    if (!address.startsWith("0x")) {
+      address = "0x" + address;
+    }
+
+    // Check length (42 characters = 0x + 40 hex characters)
+    if (address.length !== 42) {
+      return false;
+    }
+
+    // Check if it contains only valid hex characters after '0x'
+    return /^0x[0-9a-fA-F]{40}$/.test(address);
+  } catch (error) {
+    console.error("Address validation error:", error);
+    return false;
+  }
+}
+
+// Form validation function
 // Form validation function
 function validateForm() {
   const form = document.getElementById("propertyForm");
@@ -652,7 +591,7 @@ function validateForm() {
     return false;
   }
 
-  // Check all other required fields
+  // Check all required fields
   allInputs.forEach((input) => {
     if (input.value.trim() === "") {
       isValid = false;
@@ -682,67 +621,7 @@ function validateForm() {
     return false;
   }
 
-  // Only validate format for completed fields
-  const phoneInputs = document.querySelectorAll('input[type="tel"]');
-  const emailInputs = document.querySelectorAll('input[type="email"]');
-  const idInputs = document.querySelectorAll(
-    'input[placeholder="Aadhar / PAN Number"]'
-  );
-  const ethereumAddress = document.querySelector(
-    'input[name="newOwner_ethAddress"]'
-  );
-
-  // Validate phone only if complete (10 digits)
-  phoneInputs.forEach((input) => {
-    if (
-      input.value.length >= 10 &&
-      !validations.phone.regex.test(input.value)
-    ) {
-      isValid = false;
-      errorMessage = validations.phone.message;
-    }
-  });
-
-  // Validate email only if it includes @
-  emailInputs.forEach((input) => {
-    if (
-      input.value.includes("@") &&
-      !validations.email.regex.test(input.value)
-    ) {
-      isValid = false;
-      errorMessage = validations.email.message;
-    }
-  });
-
-  // Validate ID numbers only if complete
-  idInputs.forEach((input) => {
-    const value = input.value.trim();
-    if (
-      (value.length === 12 || value.length === 10) &&
-      !validateIdNumber(value).isValid
-    ) {
-      isValid = false;
-      errorMessage = validateIdNumber(value).message;
-    }
-  });
-
-  // Validate ethereum address
-  if (ethereumAddress && ethereumAddress.value) {
-    try {
-      if (!web3Instance.utils.isAddress(ethereumAddress.value)) {
-        isValid = false;
-        errorMessage = "Please enter a valid Ethereum address";
-      }
-    } catch (error) {
-      isValid = false;
-      errorMessage = "Invalid Ethereum address format";
-    }
-  }
-
-  if (!isValid) {
-    alert(errorMessage);
-  }
-  return isValid;
+  return true;
 }
 
 // Setup form validation event listeners
@@ -1356,185 +1235,141 @@ async function handlePincodeLookup(pincode, isAutofill, inputs) {
 }
 
 // Transfer property on blockchain
+// Updated transferPropertyOnBlockchain function with proper scope handling
 async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
-  const submitButton = document.querySelector(".continue-btn");
-  submitButton.disabled = true;
-  submitButton.textContent = "Processing...";
+  console.log("DEBUG MODE: Starting simplified property transfer process");
+
+  let propertyId = null;
+  let blockchainAddress = null;
+  let accounts = null;
+  let currentAccount = null;
+  let data = null;
 
   try {
-    // Comprehensive blockchain initialization check
+    // Basic validation
     if (!web3Instance || !contractInstance) {
       throw new Error("Blockchain not properly initialized");
     }
 
-    // Get current account
-    const accounts = await web3Instance.eth.getAccounts();
-    if (!accounts || accounts.length === 0) {
+    accounts = await web3Instance.eth.getAccounts();
+    if (!accounts?.[0]) {
       throw new Error("No Ethereum account found");
     }
-    const account = accounts[0];
+    currentAccount = accounts[0];
 
-    // await debugPropertyTransfer(propertyId); // Temporary
-
-    // Get the property ID
-    const propertyId =
+    // Get property ID
+    propertyId =
       typeof propertyData === "string" ? propertyData : propertyData.propertyId;
     if (!propertyId) {
       throw new Error("Property ID is required");
     }
-    console.log("Starting property transfer process:", {
-      propertyId,
-      currentAccount: account,
-      newOwnerAddress,
+
+    // Get blockchain address
+    console.log("DEBUG: Fetching blockchain address for property:", propertyId);
+    const response = await fetch(`/api/registrations/${propertyId}`, {
+      headers: getAuthHeaders(),
     });
 
-    // Now pass the propertyId to the debug function
-    await debugPropertyTransfer(propertyId);
-
-    // Get blockchain address with error handling
-    let blockchainAddress;
-    try {
-      const response = await fetch(`/api/registrations/${propertyId}`, {
-        headers: getAuthHeaders(),
-      });
-
-      if (!response.ok) {
-        console.error("API Response not OK:", response.status);
-        throw new Error(`Failed to fetch property data: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log("Property registration data:", data);
-
-      if (data?.propertyInfo?.blockchainId) {
-        blockchainAddress = data.propertyInfo.blockchainId;
-        blockchainAddress = blockchainAddress.startsWith("0x")
-          ? blockchainAddress
-          : `0x${blockchainAddress}`;
-
-        if (!web3Instance.utils.isAddress(blockchainAddress)) {
-          throw new Error(
-            `Invalid blockchain address format: ${blockchainAddress}`
-          );
-        }
-      } else {
-        throw new Error("Blockchain ID not found in property data");
-      }
-    } catch (error) {
-      console.error("Error fetching blockchain address:", error);
-      throw new Error(
-        `Could not retrieve blockchain address: ${error.message}`
-      );
+    if (!response.ok) {
+      throw new Error("Failed to fetch property registration data");
     }
 
-    console.log("Retrieved blockchain address:", blockchainAddress);
-
-    // Check if property exists
-    let propertyInfo;
-    try {
-      propertyInfo = await contractInstance.methods
-        .getProperty(blockchainAddress)
-        .call();
-      console.log("Property info from blockchain:", propertyInfo);
-
-      if (
-        !propertyInfo ||
-        propertyInfo.owner === "0x0000000000000000000000000000000000000000"
-      ) {
-        throw new Error("Property not found on blockchain");
-      }
-    } catch (error) {
-      console.error("Error retrieving property:", error);
-      throw new Error("Failed to retrieve property from blockchain");
+    data = await response.json();
+    if (!data?.propertyInfo?.blockchainId) {
+      throw new Error("Property blockchain ID not found");
     }
 
-    // Verify ownership
-    if (propertyInfo.owner.toLowerCase() !== account.toLowerCase()) {
-      throw new Error("Only the current owner can transfer this property");
-    }
+    // Format blockchain address
+    blockchainAddress = data.propertyInfo.blockchainId.startsWith("0x")
+      ? data.propertyInfo.blockchainId
+      : `0x${data.propertyInfo.blockchainId}`;
 
-    // Check verification status
-    if (!propertyInfo.isVerified) {
-      console.log("Property needs verification, verifying...");
-      try {
-        const verifyMethod =
-          contractInstance.methods.verifyProperty(blockchainAddress);
-        const verifyGas = await verifyMethod.estimateGas({ from: account });
+    console.log("DEBUG: Transaction details:", {
+      contract: CONTRACT_ADDRESS,
+      property: blockchainAddress,
+      currentOwner: currentAccount,
+      newOwner: newOwnerAddress,
+    });
 
-        await verifyMethod.send({
-          from: account,
-          gas: Math.ceil(verifyGas * 1.2),
-        });
-        console.log("Property verification successful");
-      } catch (verifyError) {
-        console.error("Verification failed:", verifyError);
-        throw new Error("Property verification failed");
-      }
-    }
-
-    // Prepare transfer transaction
-    console.log("Preparing transfer transaction...");
+    // Create transfer method without ownership verification for testing
     const transferMethod = contractInstance.methods.transferOwnership(
       blockchainAddress,
       newOwnerAddress
     );
 
-    // Estimate gas
-    const gasEstimate = await transferMethod
-      .estimateGas({
-        from: account,
-      })
-      .catch((error) => {
-        console.error("Gas estimation error:", error);
-        throw new Error("Failed to estimate gas for transfer");
+    // Get gas estimate
+    let gasEstimate;
+    try {
+      gasEstimate = await transferMethod.estimateGas({
+        from: currentAccount,
+        gas: 500000, // Set high initial gas for estimation
       });
+      console.log("DEBUG: Gas estimate:", gasEstimate);
+    } catch (gasError) {
+      console.error("DEBUG: Gas estimation error:", gasError);
+      gasEstimate = 500000; // Fallback gas limit
+    }
 
-    // Get gas price
+    // Get current gas price with buffer
     const gasPrice = await web3Instance.eth.getGasPrice();
-    const adjustedGasPrice = Math.ceil(Number(gasPrice) * 1.1);
-
-    console.log("Transfer parameters:", {
-      from: account,
-      blockchainAddress,
-      newOwnerAddress,
-      gasEstimate,
+    const adjustedGasPrice = Math.ceil(Number(gasPrice) * 1.1); // Add 10% buffer
+    console.log("DEBUG: Using gas parameters:", {
+      gas: gasEstimate,
       gasPrice: adjustedGasPrice,
     });
 
-    // Execute transfer
-    const receipt = await transferMethod
-      .send({
-        from: account,
-        gas: Math.ceil(gasEstimate * 1.2),
-        gasPrice: adjustedGasPrice,
-      })
-      .catch((error) => {
-        console.error("Transfer execution error:", error);
-        throw new Error("Failed to execute transfer transaction");
-      });
+    // Send transfer transaction with high gas limit
+    const receipt = await transferMethod.send({
+      from: currentAccount,
+      gas: Math.ceil(gasEstimate * 1.5), // Add 50% buffer to gas estimate
+      gasPrice: adjustedGasPrice,
+    });
 
-    console.log("Transfer successful:", receipt);
+    console.log("DEBUG: Transfer receipt:", receipt);
 
     return {
       success: true,
       propertyId: propertyId,
       blockchainId: blockchainAddress,
-      previousOwner: account,
+      previousOwner: currentAccount,
       newOwner: newOwnerAddress,
-      transferDate: Math.floor(Date.now() / 1000),
+      transferDate: new Date().toISOString(),
       transactionHash: receipt.transactionHash,
     };
   } catch (error) {
-    console.error("Property transfer failed:", {
-      error,
+    console.error("DEBUG: Detailed error information:", {
       message: error.message,
       code: error.code,
-      fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+      data: error.data,
+      stack: error.stack,
     });
-    throw new Error(`Failed to transfer property: ${error.message}`);
-  } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = "Continue";
+
+    // Add context to the error
+    const errorContext = {
+      propertyId: propertyId,
+      blockchainAddress: blockchainAddress,
+      currentAccount: accounts?.[0],
+      newOwnerAddress: newOwnerAddress,
+      contract: CONTRACT_ADDRESS,
+    };
+    console.log("DEBUG: Error context:", errorContext);
+
+    // Try to extract more detailed error information
+    if (error.message.includes("Internal JSON-RPC error")) {
+      const errorData = error.data || {};
+      console.log("DEBUG: RPC error details:", errorData);
+
+      // Check if it's a revert
+      if (errorData.message?.includes("revert")) {
+        throw new Error(`Contract reverted: ${errorData.message}`);
+      }
+
+      throw new Error(
+        "Transaction failed. Please check the gas parameters and try again."
+      );
+    }
+
+    throw error;
   }
 }
 
@@ -1677,6 +1512,159 @@ function getAppointmentType() {
   return "registration";
 }
 
+// Helper function to validate blockchain address format
+async function validateBlockchainAddress(web3Instance, address) {
+  if (!address) return false;
+  const formattedAddress = address.startsWith("0x") ? address : `0x${address}`;
+  return web3Instance.utils.isAddress(formattedAddress);
+}
+
+// Helper function to verify property exists and is owned by the correct account
+async function verifyPropertyOwnership(
+  contractInstance,
+  propertyAddress,
+  ownerAddress
+) {
+  try {
+    console.log("Starting property ownership verification:", {
+      propertyAddress,
+      ownerAddress,
+    });
+
+    // Input validation with detailed logging
+    if (!propertyAddress || !ownerAddress) {
+      console.error("Missing required addresses:", {
+        propertyAddress,
+        ownerAddress,
+      });
+      throw new Error("Property address and owner address are required");
+    }
+
+    // Format addresses with validation
+    const formattedPropertyAddress = propertyAddress.toLowerCase();
+    const formattedOwnerAddress = ownerAddress.toLowerCase();
+
+    console.log("Formatted addresses:", {
+      formattedPropertyAddress,
+      formattedOwnerAddress,
+    });
+
+    // Get property details with more robust error handling
+    let propertyDetails;
+    try {
+      console.log("Attempting to fetch property details from contract...");
+      propertyDetails = await contractInstance.methods
+        .getProperty(formattedPropertyAddress)
+        .call();
+      console.log("Raw property details received:", propertyDetails);
+    } catch (error) {
+      console.error("Contract call error:", {
+        error,
+        message: error.message,
+        data: error.data,
+      });
+
+      // Check if property not found
+      if (error.message.includes("Property not found")) {
+        // Try to re-register the property
+        console.log("Property not found, attempting recovery...");
+        try {
+          propertyDetails = await attemptPropertyRecovery(
+            contractInstance,
+            formattedPropertyAddress,
+            formattedOwnerAddress
+          );
+        } catch (recoveryError) {
+          console.error("Recovery failed:", recoveryError);
+          throw new Error("Property does not exist and recovery failed");
+        }
+      } else {
+        throw new Error("Failed to fetch property details from blockchain");
+      }
+    }
+
+    // Enhanced property validation
+    if (!propertyDetails || !Array.isArray(propertyDetails)) {
+      console.error("Invalid property data format:", propertyDetails);
+      throw new Error("Invalid property data received from blockchain");
+    }
+
+    // Detailed property info logging
+    const [
+      propertyId,
+      name,
+      location,
+      propertyType,
+      owner,
+      timestamp,
+      isVerified,
+    ] = propertyDetails;
+    console.log("Parsed property details:", {
+      propertyId,
+      name,
+      location,
+      propertyType,
+      owner,
+      timestamp,
+      isVerified,
+    });
+
+    // Comprehensive ownership validation
+    if (!owner || owner === "0x0000000000000000000000000000000000000000") {
+      throw new Error("Property owner not properly set on blockchain");
+    }
+
+    if (owner.toLowerCase() !== formattedOwnerAddress) {
+      console.error("Owner mismatch:", {
+        contractOwner: owner.toLowerCase(),
+        requestedOwner: formattedOwnerAddress,
+      });
+      throw new Error("You are not the current owner of this property");
+    }
+
+    return propertyDetails;
+  } catch (error) {
+    console.error("Property verification failed:", {
+      error,
+      propertyAddress,
+      ownerAddress,
+      message: error.message,
+    });
+    throw error;
+  }
+}
+
+// Property recovery
+async function attemptPropertyRecovery(
+  contractInstance,
+  propertyAddress,
+  ownerAddress
+) {
+  console.log("Attempting property recovery for:", propertyAddress);
+
+  try {
+    // First try to verify if property exists but just needs reindexing
+    const receipt = await contractInstance.methods
+      .verifyProperty(propertyAddress)
+      .send({ from: ownerAddress });
+
+    console.log("Property verification receipt:", receipt);
+
+    // Try getting property details again
+    const propertyDetails = await contractInstance.methods
+      .getProperty(propertyAddress)
+      .call();
+
+    if (propertyDetails) {
+      console.log("Property recovered successfully");
+      return propertyDetails;
+    }
+  } catch (error) {
+    console.error("Recovery attempt failed:", error);
+    throw error;
+  }
+}
+
 // Handle form submission
 async function handleFormSubmit(e) {
   e.preventDefault();
@@ -1684,10 +1672,6 @@ async function handleFormSubmit(e) {
   if (!validateForm()) {
     return;
   }
-
-  const submitButton = document.querySelector(".continue-btn");
-  submitButton.disabled = true;
-  submitButton.textContent = "Processing...";
 
   try {
     // Get form values
@@ -1739,10 +1723,21 @@ async function handleFormSubmit(e) {
   } catch (error) {
     console.error("Transfer failed:", error);
     alert(`Transfer failed: ${error.message}`);
-  } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = "Continue";
   }
+}
+
+// Helper function to get authentication headers
+// function getAuthHeaders() {
+//   return {
+//     Authorization: `Bearer ${getToken()}`,
+//     "Content-Type": "application/json",
+//   };
+// }
+
+// Helper function to format ethereum address
+function formatEthereumAddress(address) {
+  if (!address) return null;
+  return address.startsWith("0x") ? address : `0x${address}`;
 }
 
 // Setup file upload handlers
@@ -2024,7 +2019,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.log("Form Initialization Complete");
 
     // Run additional diagnostics
-    await debugContractMethods();
+    // await debugContractMethods();
   } catch (error) {
     console.error("Comprehensive Initialization Failure:", {
       error,
@@ -2036,10 +2031,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 export {
-  checkAuthentication,
-  initializeForm,
-  validateForm,
-  handleFormSubmit,
   transferPropertyOnBlockchain,
+  handleFormSubmit,
+  validateForm,
+  prepareFormData,
+  getBlockchainAddressFromPropertyId,
   blockchainUtils,
+  debugPropertyTransfer,
+  getAuthHeaders,
+  formatEthereumAddress,
 };

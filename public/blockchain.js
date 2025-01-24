@@ -317,94 +317,33 @@ async function getPropertyDetailsByTxHash(txHash) {
   try {
     console.log("Starting property verification for hash:", txHash);
 
-    // First check MongoDB for the transaction
+    // First search in MongoDB using the API
     const response = await fetch(`/api/property/search-by-hash/${txHash}`);
     const responseData = await response.json();
 
-    if (response.ok && responseData.success) {
-      // If found in MongoDB, use that data
-      const propertyData = responseData.data;
-      const matchedTx = propertyData.matchedTransaction;
-
-      // Get blockchain confirmation
-      const receipt = await web3Instance.eth.getTransactionReceipt(
-        matchedTx.transactionHash
-      );
-      const block = await web3Instance.eth.getBlock(receipt.blockNumber);
-
-      return {
-        success: true,
-        data: {
-          propertyId: propertyData.propertyId,
-          propertyName: propertyData.propertyName,
-          location: propertyData.location,
-          propertyType: propertyData.propertyType,
-          owner: propertyData.owner,
-          registrationDate: matchedTx.timestamp,
-          isVerified: propertyData.isVerified,
-          blockchainId: propertyData.blockchainId,
-          transactionHash: matchedTx.transactionHash,
-          blockNumber: receipt.blockNumber,
-          timestamp: block.timestamp,
-          networkId: await web3Instance.eth.net.getId(),
-        },
-      };
-    } else {
-      // If not found in MongoDB, try blockchain directly
-      if (!web3Instance.utils.isHexStrict(txHash)) {
-        throw new Error("Invalid transaction hash format");
-      }
-
-      const receipt = await web3Instance.eth.getTransactionReceipt(txHash);
-      if (!receipt) {
-        throw new Error("Transaction not found on blockchain");
-      }
-
-      const transaction = await web3Instance.eth.getTransaction(txHash);
-      const block = await web3Instance.eth.getBlock(receipt.blockNumber);
-
-      // Try to get property details from blockchain
-      const eventSignature = web3Instance.utils.sha3(
-        "PropertyRegistered(address,string,string,address)"
-      );
-      const propertyEvent = receipt.logs.find(
-        (log) => log.topics[0] === eventSignature
-      );
-
-      if (!propertyEvent) {
-        throw new Error("Property registration event not found in transaction");
-      }
-
-      const decodedEvent = web3Instance.eth.abi.decodeLog(
-        [
-          { type: "address", name: "blockchainId", indexed: true },
-          { type: "string", name: "propertyId" },
-          { type: "string", name: "propertyName" },
-          { type: "address", name: "owner" },
-        ],
-        propertyEvent.data,
-        [propertyEvent.topics[1]]
-      );
-
-      const blockchainId = decodedEvent.blockchainId;
-      const propertyDetails = await getPropertyDetails(blockchainId);
-
-      if (!propertyDetails.success) {
-        throw new Error(propertyDetails.error);
-      }
-
-      return {
-        success: true,
-        data: {
-          ...propertyDetails.data,
-          blockchainId: blockchainId,
-          transactionHash: txHash,
-          blockNumber: receipt.blockNumber,
-          networkId: await web3Instance.eth.net.getId(),
-          timestamp: block.timestamp,
-        },
-      };
+    if (!response.ok || !responseData.success) {
+      throw new Error(responseData.error || "Failed to fetch property details");
     }
+
+    // Get the transaction receipt for UI display
+    const receipt = await web3Instance.eth.getTransactionReceipt(txHash);
+    const block = await web3Instance.eth.getBlock(receipt.blockNumber);
+
+    // Use the current blockchain status from the API response
+    return {
+      success: true,
+      data: {
+        ...responseData.data.currentBlockchainStatus,
+        blockchainId: responseData.data.currentBlockchainId,
+        originalBlockchainId: responseData.data.blockchainIds[0]?.id,
+        transactionHash: txHash,
+        blockNumber: receipt.blockNumber,
+        timestamp: block.timestamp,
+        networkId: await web3Instance.eth.net.getId(),
+        blockchainHistory: responseData.data.blockchainIds,
+        transactionHistory: responseData.data.transactions,
+      },
+    };
   } catch (error) {
     console.error("Error in getPropertyDetailsByTxHash:", error);
     return {
@@ -418,31 +357,25 @@ async function getPropertyDetailsByBlockchainId(blockchainId) {
   try {
     console.log("Getting property details for blockchain ID:", blockchainId);
 
-    if (!web3Instance.utils.isAddress(blockchainId)) {
-      throw new Error("Invalid blockchain ID format");
+    // First search in MongoDB using the API
+    const response = await fetch(
+      `/api/property/search-by-blockchain-id/${blockchainId}`
+    );
+    const responseData = await response.json();
+
+    if (!response.ok || !responseData.success) {
+      throw new Error(responseData.error || "Failed to fetch property details");
     }
 
-    // Use properties mapping directly
-    const property = await contractInstance.methods
-      .properties(blockchainId)
-      .call();
-
-    if (!property || !property.propertyId) {
-      throw new Error("Property not found for this blockchain ID");
-    }
-
+    // Use the current blockchain status from the API response
     return {
       success: true,
       data: {
-        propertyId: property.propertyId,
-        propertyName: property.propertyName,
-        location: property.location,
-        propertyType: property.propertyType,
-        owner: property.owner,
-        registrationDate: property.registrationDate,
-        isVerified: property.isVerified,
-        lastTransferDate: property.lastTransferDate,
-        blockchainId: blockchainId,
+        ...responseData.data.currentBlockchainStatus,
+        blockchainId: responseData.data.currentBlockchainId,
+        originalBlockchainId: responseData.data.blockchainIds[0]?.id,
+        blockchainHistory: responseData.data.blockchainIds,
+        transactionHistory: responseData.data.transactions,
       },
     };
   } catch (error) {
@@ -731,87 +664,56 @@ document.addEventListener("DOMContentLoaded", async () => {
           // Transaction hash case
           console.log("Processing transaction hash search:", searchValue);
 
-          const txReceipt = await web3Instance.eth.getTransactionReceipt(
-            searchValue
-          );
-          if (!txReceipt) {
-            throw new Error("Transaction not found");
-          }
-
-          const txDetails = await web3Instance.eth.getTransaction(searchValue);
-          if (!txDetails) {
-            throw new Error("Transaction details not found");
-          }
-
-          transactionData = {
-            blockNumber: txReceipt.blockNumber,
-            from: txReceipt.from,
-            to: txReceipt.to,
-            gasUsed: txReceipt.gasUsed,
-            transactionHash: searchValue,
-          };
-
-          result = await getPropertyDetailsByTxHash(searchValue);
-
-          if (result.success) {
-            resultContainer.innerHTML = createVerifiedProperty(result.data);
-            displayBlockchainData(searchValue, result.data, transactionData, [
-              {
-                propertyId: result.data.propertyId,
-                propertyName: result.data.propertyName,
-                owner: result.data.owner,
-                blockchainId: result.data.blockchainId,
-              },
-            ]);
-          }
-        } else if (searchValue.length === 42) {
-          // Blockchain ID case
-          console.log("Processing blockchain ID search:", searchValue);
-
-          result = await getPropertyDetails(searchValue);
-
-          if (result.success) {
-            // Try to find the registration transaction
-            const latestBlock = await web3Instance.eth.getBlockNumber();
-            const events = await contractInstance.getPastEvents(
-              "PropertyRegistered",
-              {
-                filter: { blockchainId: searchValue },
-                fromBlock: 0,
-                toBlock: latestBlock,
-              }
+          // Get the transaction details first
+          try {
+            const txReceipt = await web3Instance.eth.getTransactionReceipt(
+              searchValue
             );
-
-            if (events.length > 0) {
-              const txHash = events[0].transactionHash;
-              const txReceipt = await web3Instance.eth.getTransactionReceipt(
-                txHash
-              );
-              const txDetails = await web3Instance.eth.getTransaction(txHash);
-
+            if (txReceipt) {
               transactionData = {
                 blockNumber: txReceipt.blockNumber,
                 from: txReceipt.from,
                 to: txReceipt.to,
                 gasUsed: txReceipt.gasUsed,
-                transactionHash: txHash,
+                transactionHash: searchValue,
               };
             }
+          } catch (err) {
+            console.error("Error getting transaction receipt:", err);
+          }
 
-            resultContainer.innerHTML = createVerifiedProperty(result.data);
-            displayBlockchainData(
-              transactionData.transactionHash || "N/A",
-              result.data,
-              transactionData,
-              [
-                {
-                  propertyId: result.data.propertyId,
-                  propertyName: result.data.propertyName,
-                  owner: result.data.owner,
-                  blockchainId: searchValue, // Explicitly include blockchain ID
-                },
-              ]
+          result = await getPropertyDetailsByTxHash(searchValue);
+        } else if (searchValue.length === 42) {
+          // Blockchain ID case
+          console.log("Processing blockchain ID search:", searchValue);
+          result = await getPropertyDetailsByBlockchainId(searchValue);
+
+          // If successful, try to get transaction data from history
+          if (result.success && result.data.blockchainHistory) {
+            const matchedId = result.data.blockchainHistory.find(
+              (entry) => entry.id === searchValue
             );
+            if (matchedId?.txHash) {
+              try {
+                const txReceipt = await web3Instance.eth.getTransactionReceipt(
+                  matchedId.txHash
+                );
+                if (txReceipt) {
+                  transactionData = {
+                    blockNumber: txReceipt.blockNumber,
+                    from: txReceipt.from,
+                    to: txReceipt.to,
+                    gasUsed: txReceipt.gasUsed,
+                    transactionHash: matchedId.txHash,
+                  };
+                }
+              } catch (err) {
+                console.error(
+                  "Error getting transaction receipt for history:",
+                  err
+                );
+              }
+            }
           }
         } else {
           throw new Error("Invalid input length");
@@ -820,6 +722,26 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (!result.success) {
           throw new Error(
             result.error || "Failed to retrieve property details"
+          );
+        }
+
+        // Display results only if we have valid data
+        resultContainer.innerHTML = createVerifiedProperty(result.data);
+
+        // Only display blockchain data if we have result data
+        if (result.data) {
+          displayBlockchainData(
+            transactionData.transactionHash || "N/A",
+            result.data,
+            transactionData || {},
+            [
+              {
+                propertyId: result.data.propertyId,
+                propertyName: result.data.propertyName,
+                owner: result.data.owner,
+                blockchainId: result.data.blockchainId,
+              },
+            ]
           );
         }
       } else {

@@ -48,203 +48,116 @@ function verifyEventSignature() {
 }
 
 // Helper function to register property on blockchain
-async function registerPropertyOnBlockchain(propertyData) {
-  const submitButton = document.querySelector(".continue-btn");
-  submitButton.disabled = true;
-  submitButton.textContent = "Processing...";
+// async function registerPropertyOnBlockchain(propertyData) {
+//   const submitButton = document.querySelector(".continue-btn");
+//   submitButton.disabled = true;
+//   submitButton.textContent = "Processing...";
 
-  try {
-    // Check if MetaMask is installed
-    if (!window.ethereum) {
-      throw new Error("MetaMask not installed");
-    }
+//   try {
+//     // Check if MetaMask is installed
+//     if (!window.ethereum) {
+//       throw new Error("MetaMask not installed");
+//     }
 
-    // Get accounts
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts",
-    });
+//     // Get accounts
+//     const accounts = await window.ethereum.request({
+//       method: "eth_requestAccounts",
+//     });
 
-    if (!accounts || accounts.length === 0) {
-      throw new Error("No MetaMask account available");
-    }
+//     if (!accounts || accounts.length === 0) {
+//       throw new Error("No MetaMask account available");
+//     }
 
-    const account = accounts[0];
+//     const account = accounts[0];
 
-    // Format property data
-    const formattedData = {
-      propertyId: propertyData.propertyId,
-      propertyName:
-        `${propertyData.plotNumber} ${propertyData.propertyName}`.trim(),
-      location: `${propertyData.street}, ${propertyData.locality}, ${propertyData.city}, ${propertyData.state}`,
-      propertyType: propertyData.propertyType,
-    };
+//     // Get locality from input field directly
+//     const localityInput = document.querySelector(
+//       'input[placeholder="Locality"]'
+//     );
+//     if (!localityInput) {
+//       throw new Error("Locality input field not found");
+//     }
 
-    // Explicitly register the function selector
-    const functionSignature = "registerProperty(string,string,string,string)";
-    const functionSelector =
-      web3Instance.eth.abi.encodeFunctionSignature(functionSignature);
+//     const locality = localityInput.value.trim();
+//     if (!locality) {
+//       throw new Error("Locality is required");
+//     }
 
-    // Encode parameters separately
-    const encodedParameters = web3Instance.eth.abi.encodeParameters(
-      ["string", "string", "string", "string"],
-      [
-        formattedData.propertyId,
-        formattedData.propertyName,
-        formattedData.location,
-        formattedData.propertyType,
-      ]
-    );
+//     // Format property data
+//     const formattedData = {
+//       propertyId: String(propertyData.propertyId || "").trim(),
+//       propertyName: String(
+//         propertyData.plotNumber || "Plot number not specified"
+//       ).trim(),
+//       locality: locality,
+//       propertyType: String(propertyData.propertyType || "Not specified").trim(),
+//     };
 
-    // Combine selector and parameters
-    const data = functionSelector + encodedParameters.slice(2); // Remove '0x' from parameters
+//     console.log("🏠 Formatted data with locality:", formattedData);
 
-    // Prepare transaction
-    const transactionParameters = {
-      to: contractInstance.options.address,
-      from: account,
-      data: data,
-      type: "0x0", // Legacy transaction type
-    };
+//     // Validate required fields
+//     if (!formattedData.propertyId) {
+//       throw new Error("Property ID is required");
+//     }
 
-    // First get gas estimate
-    try {
-      const gasEstimate = await window.ethereum.request({
-        method: "eth_estimateGas",
-        params: [transactionParameters],
-      });
+//     // Create the contract method call
+//     const registerMethod = contractInstance.methods.registerProperty(
+//       formattedData.propertyId,
+//       formattedData.propertyName,
+//       formattedData.locality,
+//       formattedData.propertyType
+//     );
 
-      transactionParameters.gas = web3Instance.utils.toHex(
-        Math.round(Number(gasEstimate) * 1.2)
-      ); // Add 20% buffer
-    } catch (error) {
-      console.error("Gas estimation failed:", error);
-      throw new Error("Failed to estimate gas. The transaction might fail.");
-    }
+//     // Estimate gas using the contract method directly
+//     let gasEstimate;
+//     try {
+//       gasEstimate = await registerMethod.estimateGas({ from: account });
+//       console.log("Estimated gas:", gasEstimate);
+//     } catch (error) {
+//       console.error("Gas estimation error:", error);
+//       throw new Error(
+//         "Contract interaction failed: " +
+//           (error.message || "Gas estimation failed")
+//       );
+//     }
 
-    // Get gas price
-    try {
-      const gasPrice = await window.ethereum.request({
-        method: "eth_gasPrice",
-      });
+//     // Add 20% buffer to gas estimate
+//     const gasWithBuffer = Math.ceil(gasEstimate * 1.2);
 
-      transactionParameters.gasPrice = web3Instance.utils.toHex(
-        Math.round(Number(gasPrice) * 1.1)
-      ); // Add 10% buffer
-    } catch (error) {
-      console.error("Gas price fetch failed:", error);
-      throw new Error("Failed to get gas price");
-    }
+//     // Get current gas price
+//     const gasPrice = await web3Instance.eth.getGasPrice();
+//     console.log("Current gas price:", gasPrice);
 
-    // Send transaction
-    submitButton.textContent = "Confirm in MetaMask...";
-    const txHash = await window.ethereum.request({
-      method: "eth_sendTransaction",
-      params: [transactionParameters],
-    });
+//     // Send transaction
+//     submitButton.textContent = "Confirm in MetaMask...";
 
-    if (!txHash) {
-      throw new Error("Transaction failed");
-    }
+//     const transaction = await registerMethod.send({
+//       from: account,
+//       gas: gasWithBuffer,
+//       gasPrice: gasPrice,
+//     });
 
-    submitButton.textContent = "Waiting for confirmation...";
+//     console.log("Transaction successful:", transaction);
 
-    // Wait for transaction receipt
-    let receipt = null;
-    let attempts = 0;
-    const maxAttempts = 30;
-
-    while (!receipt && attempts < maxAttempts) {
-      try {
-        receipt = await window.ethereum.request({
-          method: "eth_getTransactionReceipt",
-          params: [txHash],
-        });
-
-        if (!receipt) {
-          attempts++;
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          continue;
-        }
-
-        if (!receipt.status) {
-          throw new Error("Transaction failed");
-        }
-
-        // Debug log the receipt
-        console.log("Transaction receipt:", receipt);
-
-        // Check if we have logs
-        if (!receipt.logs || receipt.logs.length === 0) {
-          console.error("No logs found in receipt");
-          return {
-            success: true,
-            blockchainId: formattedData.propertyId, // Fallback to propertyId
-            transactionHash: txHash,
-            blockNumber: web3Instance.utils.hexToNumber(receipt.blockNumber),
-          };
-        }
-
-        // Find and decode the PropertyRegistered event
-        try {
-          const propertyRegisteredTopic = web3Instance.utils.sha3(
-            "PropertyRegistered(address,string,string,address)" // Updated event signature
-          );
-          console.log("Looking for topic:", propertyRegisteredTopic);
-          console.log("Available logs:", receipt.logs);
-
-          const eventLog = receipt.logs.find(
-            (log) => log.topics[0] === propertyRegisteredTopic
-          );
-
-          if (eventLog) {
-            // Decode the event data - updated to match the actual event parameters
-            const decodedData = web3Instance.eth.abi.decodeParameters(
-              ["string", "string", "address"], // Update parameters to match event
-              eventLog.data
-            );
-            console.log("Decoded event data:", decodedData);
-
-            // The blockchainId is in the topics since it's indexed
-            const blockchainId = eventLog.topics[1].slice(26).toLowerCase(); // Convert to checksum address
-
-            return {
-              success: true,
-              blockchainId: blockchainId, // Use the actual blockchainId from event
-              transactionHash: txHash,
-              blockNumber: web3Instance.utils.hexToNumber(receipt.blockNumber),
-            };
-          }
-        } catch (decodeError) {
-          console.error("Error decoding event:", decodeError);
-        }
-
-        // Fallback return if event parsing fails
-        return {
-          success: true,
-          blockchainId: formattedData.propertyId,
-          transactionHash: txHash,
-          blockNumber: web3Instance.utils.hexToNumber(receipt.blockNumber),
-        };
-      } catch (error) {
-        console.error("Error while waiting for receipt:", error);
-        if (attempts >= maxAttempts) {
-          throw new Error("Transaction confirmation timeout");
-        }
-      }
-    }
-
-    throw new Error("Failed to get transaction receipt");
-  } catch (error) {
-    console.error("Registration error:", error);
-    return {
-      success: false,
-      error: error.message || "Transaction failed",
-    };
-  } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = "Continue";
-  }
-}
+//     // Return success response with transaction details
+//     return {
+//       success: true,
+//       blockchainId: formattedData.propertyId,
+//       transactionHash: transaction.transactionHash,
+//       blockNumber: transaction.blockNumber,
+//       locality: formattedData.locality,
+//     };
+//   } catch (error) {
+//     console.error("Registration error:", error);
+//     return {
+//       success: false,
+//       error: error.message || "Transaction failed",
+//     };
+//   } finally {
+//     submitButton.disabled = false;
+//     submitButton.textContent = "Continue";
+//   }
+// }
 
 // Web3 Debug
 window.debugWeb3Setup = async function () {
@@ -1188,6 +1101,9 @@ function setupFormElements() {
 }
 
 // Handle form submission
+// In registernewprop.js
+
+// Function 1: Form Submit Handler
 async function handleFormSubmit(e) {
   e.preventDefault();
 
@@ -1196,7 +1112,7 @@ async function handleFormSubmit(e) {
   submitButton.textContent = "Processing...";
 
   try {
-    // Check authentication first
+    // Check authentication
     const token = getToken();
     if (!token) {
       window.location.href = "/login.html";
@@ -1207,7 +1123,7 @@ async function handleFormSubmit(e) {
       return;
     }
 
-    // Step 1: Create an appointment with proper headers
+    // Step 1: Create appointment with proper headers
     const officeSelect = document.getElementById("Choose");
     const appointmentResponse = await fetch("/api/appointments", {
       method: "POST",
@@ -1230,7 +1146,22 @@ async function handleFormSubmit(e) {
       throw new Error(errorData.error || "Failed to create appointment");
     }
 
-    // Step 2: Collect property data for blockchain registration
+    // Step 2: Collect property data with explicit locality
+    const localityInput = document.querySelector(
+      'input[placeholder="Locality"]'
+    );
+    const locality = localityInput ? localityInput.value.trim() : null;
+
+    console.log("🏠 Form Submission - Locality Check:", {
+      locality: locality,
+      inputFound: !!localityInput,
+      inputValue: localityInput?.value,
+    });
+
+    if (!locality) {
+      throw new Error("Locality is required");
+    }
+
     const propertyData = {
       propertyId: document.querySelector('input[placeholder="Property ID"]')
         .value,
@@ -1239,7 +1170,7 @@ async function handleFormSubmit(e) {
       ).value,
       propertyName: document.querySelector('input[placeholder="Street"]').value,
       street: document.querySelector('input[placeholder="Street"]').value,
-      locality: document.querySelector('input[placeholder="Locality"]').value,
+      locality: locality, // Explicitly set locality
       city: document.querySelector('input[placeholder="City"]').value,
       state: document.querySelector('input[placeholder="State"]').value,
       pincode: document.querySelector('input[placeholder="Pincode"]').value,
@@ -1260,16 +1191,28 @@ async function handleFormSubmit(e) {
       ).value,
     };
 
-    const blockchainResult = await registerPropertyOnBlockchain(propertyData);
+    console.log("🏠 Property Data Before Blockchain Registration:", {
+      propertyId: propertyData.propertyId,
+      locality: propertyData.locality,
+      fullData: JSON.stringify(propertyData, null, 2),
+    });
 
+    // Step 3: Register on blockchain
+    const blockchainResult = await registerPropertyOnBlockchain(propertyData);
     if (!blockchainResult.success) {
       throw new Error(blockchainResult.error);
     }
 
-    // Step 3: Prepare form data
+    console.log("🏠 Blockchain Registration Result:", {
+      success: blockchainResult.success,
+      locality: blockchainResult.locality,
+      txHash: blockchainResult.transactionHash,
+    });
+
+    // Step 4: Prepare form data for backend
     const formData = new FormData();
 
-    // Add witnessInfo before ownerInfo (order matters)
+    // Add witness info
     formData.append(
       "witnessInfo",
       JSON.stringify({
@@ -1295,6 +1238,7 @@ async function handleFormSubmit(e) {
       })
     );
 
+    // Add owner info with explicit locality
     formData.append(
       "ownerInfo",
       JSON.stringify({
@@ -1316,15 +1260,18 @@ async function handleFormSubmit(e) {
           'input[placeholder="Current Address"]'
         ).value,
         blockchainId: blockchainResult.blockchainId,
+        locality: locality, // Include locality in owner info
       })
     );
 
+    // Add property info with explicit locality and blockchain data
     formData.append(
       "propertyInfo",
       JSON.stringify({
         ...propertyData,
         blockchainId: blockchainResult.blockchainId,
         transactionHash: blockchainResult.transactionHash,
+        locality: locality, // Ensure locality is included
       })
     );
 
@@ -1339,7 +1286,7 @@ async function handleFormSubmit(e) {
 
     formData.append("registrationType", "new_registration");
 
-    // Attach files with proper error handling
+    // Attach document files
     const documentTypes = [
       "saleDeed",
       "taxReceipts",
@@ -1357,12 +1304,18 @@ async function handleFormSubmit(e) {
       }
     });
 
-    // Step 4: Submit data to the backend with proper headers
+    // Log formData contents before submission
+    console.log("🏠 FormData Before Submission:", {
+      propertyInfo: JSON.parse(formData.get("propertyInfo")),
+      ownerInfo: JSON.parse(formData.get("ownerInfo")),
+      locality: locality,
+    });
+
+    // Step 5: Submit to backend
     const response = await fetch("/api/register-property", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        // Remove Content-Type header - let browser set it with boundary for FormData
       },
       body: formData,
     });
@@ -1374,17 +1327,132 @@ async function handleFormSubmit(e) {
     }
 
     const responseData = await response.json();
-    console.log("Registration successful:", responseData);
+    console.log("🏠 Registration Response:", responseData);
 
     alert("Property registered successfully!");
     window.location.href = "./registered.html";
   } catch (error) {
-    console.error("Registration failed:", error);
+    console.error("🚨 Registration Error:", error);
     if (error.message.includes("No authentication token found")) {
       window.location.href = "/login.html";
       return;
     }
     alert(`Registration failed: ${error.message}`);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = "Continue";
+  }
+}
+
+// Function 2: Blockchain Registration
+async function registerPropertyOnBlockchain(propertyData) {
+  const submitButton = document.querySelector(".continue-btn");
+  submitButton.disabled = true;
+  submitButton.textContent = "Processing...";
+
+  try {
+    // Check if MetaMask is installed
+    if (!window.ethereum) {
+      throw new Error("MetaMask not installed");
+    }
+
+    // Get accounts
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts",
+    });
+
+    if (!accounts || accounts.length === 0) {
+      throw new Error("No MetaMask account available");
+    }
+
+    const account = accounts[0];
+
+    // Format property data
+    const formattedData = {
+      propertyId: propertyData.propertyId,
+      propertyName:
+        `${propertyData.plotNumber} ${propertyData.propertyName}`.trim(),
+      location: `${propertyData.street}, ${propertyData.locality}, ${propertyData.city}, ${propertyData.state}`,
+      propertyType: propertyData.propertyType,
+    };
+
+    // Get contract instance
+    const registerMethod = contractInstance.methods.registerProperty(
+      formattedData.propertyId,
+      formattedData.propertyName,
+      formattedData.location,
+      formattedData.propertyType
+    );
+
+    // Get gas estimate
+    let gasEstimate;
+    try {
+      gasEstimate = await registerMethod.estimateGas({ from: account });
+      console.log("Gas estimate:", gasEstimate);
+    } catch (error) {
+      console.error("Gas estimation failed:", error);
+      throw new Error("Failed to estimate gas. The transaction might fail.");
+    }
+
+    // Add gas buffer
+    const gasLimit = Math.ceil(gasEstimate * 1.2);
+
+    // Get current gas price
+    const gasPrice = await web3Instance.eth.getGasPrice();
+
+    // Send transaction
+    submitButton.textContent = "Confirm in MetaMask...";
+    const transaction = await registerMethod.send({
+      from: account,
+      gas: gasLimit,
+      gasPrice: gasPrice,
+    });
+
+    // After the transaction is sent:
+    console.log("Transaction receipt:", transaction);
+    console.log("All events:", transaction.events);
+
+    let blockchainId;
+
+    if (transaction.events && Object.keys(transaction.events).length > 0) {
+      // Get the first event even if it's not named correctly
+      const event = transaction.events[0];
+      console.log("Event data:", event);
+
+      // Parse the raw data from the event
+      if (event.raw && event.raw.topics && event.raw.topics.length > 1) {
+        // The blockchainId is the first indexed parameter, which is the second topic
+        blockchainId = event.raw.topics[1];
+        // Convert from bytes32 to address format
+        blockchainId = "0x" + blockchainId.slice(26).toLowerCase();
+
+        console.log("Extracted blockchainId:", blockchainId);
+      }
+    }
+
+    if (!blockchainId) {
+      // As fallback, try to get the contract address where the event was emitted
+      blockchainId = event.address;
+      console.log("Using contract address as fallback:", blockchainId);
+    }
+
+    if (!blockchainId) {
+      throw new Error("Could not determine blockchain ID");
+    }
+
+    return {
+      success: true,
+      blockchainId: blockchainId,
+      transactionHash: transaction.transactionHash,
+      blockNumber: transaction.blockNumber,
+      locality: formattedData.location,
+    };
+  } catch (error) {
+    console.error("Registration error:", error);
+    return {
+      success: false,
+      error: error.message || "Transaction failed",
+    };
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "Continue";

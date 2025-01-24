@@ -76,83 +76,159 @@ class BlockchainSync {
   }
 
   async syncPropertyToMongoDB(propertyData, txHash) {
+    console.log("🔍 BLOCKCHAIN SYNC: Starting property sync with data:", {
+      propertyId: propertyData.propertyId,
+      blockchainId: propertyData.blockchainId,
+      locality: propertyData.locality,
+      txHash: txHash,
+    });
+
     try {
-      console.log(
-        "Starting property sync with data:",
-        JSON.stringify(propertyData, null, 2)
-      );
+      // Initial validation
+      if (
+        !propertyData ||
+        !propertyData.locality ||
+        !propertyData.blockchainId
+      ) {
+        console.error("🚨 Missing required fields:", propertyData);
+        throw new Error("Locality and blockchainId are required");
+      }
 
+      const locality = propertyData.locality.trim();
+      if (!locality) {
+        throw new Error("Locality cannot be empty");
+      }
+
+      // Validate blockchainId format
+      if (!this.web3.utils.isAddress(propertyData.blockchainId)) {
+        console.error(
+          "🚨 Invalid blockchain ID format:",
+          propertyData.blockchainId
+        );
+        throw new Error("Invalid blockchain ID format");
+      }
+
+      console.log("🔍 BLOCKCHAIN SYNC: Input validation passed");
+
+      // Validate transaction hash
+      if (!txHash || typeof txHash !== "string") {
+        throw new Error("Invalid transaction hash provided");
+      }
+
+      // Get transaction receipt
       const txReceipt = await this.web3.eth.getTransactionReceipt(txHash);
+      if (!txReceipt) {
+        throw new Error("Transaction receipt not found");
+      }
+
+      console.log("🔍 BLOCKCHAIN SYNC: Transaction receipt found:", {
+        from: txReceipt.from,
+        to: txReceipt.to,
+        blockNumber: txReceipt.blockNumber,
+      });
+
+      // Get block data
       const block = await this.web3.eth.getBlock(txReceipt.blockNumber);
+      if (!block) {
+        throw new Error("Block not found");
+      }
+
       const blockTimestamp = Number(block.timestamp);
-
-      // Calculate deterministic ID
-      const deterministicId = this.generateDeterministicId(propertyData);
-
-      // Check if property already exists
       const db = this.mongoClient.db(this.dbName);
+
+      // Check if property already exists with different blockchain ID
       const existingProperty = await db.collection("blockchainTxns").findOne({
         $or: [
-          { blockchainId: deterministicId },
-          { deterministicId: deterministicId },
+          { propertyId: propertyData.propertyId },
+          { "blockchainIds.id": propertyData.blockchainId },
         ],
       });
 
-      if (existingProperty) {
-        // Update existing property
-        await db.collection("blockchainTxns").updateOne(
-          { deterministicId: deterministicId },
-          {
-            $set: {
-              lastTransferDate: new Date(blockTimestamp * 1000),
-            },
-            $addToSet: {
-              blockchainIds: propertyData.blockchainId,
-            },
-            $push: {
-              transactions: {
-                type: "RE_REGISTRATION",
-                from: txReceipt.from,
-                to: txReceipt.to,
-                transactionHash: txHash,
-                blockNumber: Number(txReceipt.blockNumber),
-                timestamp: new Date(blockTimestamp * 1000),
-              },
-            },
-          }
-        );
-        return existingProperty;
+      // Create or update blockchainIds array
+      const blockchainIds = existingProperty?.blockchainIds || [];
+      const newBlockchainId = {
+        id: propertyData.blockchainId,
+        txHash: txHash,
+        timestamp: new Date(blockTimestamp * 1000),
+      };
+
+      if (
+        !blockchainIds.some((entry) => entry.id === propertyData.blockchainId)
+      ) {
+        blockchainIds.push(newBlockchainId);
       }
 
-      // Create new property document
+      // Create property document
       const propertyDoc = {
         propertyId: propertyData.propertyId,
-        blockchainId: deterministicId,
-        deterministicId: deterministicId,
-        blockchainIds: [deterministicId],
-        propertyName: propertyData.propertyName,
-        location: propertyData.locality,
-        propertyType: propertyData.propertyType,
+        currentBlockchainId: propertyData.blockchainId,
+        blockchainIds: blockchainIds,
+        propertyName: propertyData.propertyName || "Name not specified",
+        locality: locality,
+        propertyType: propertyData.propertyType || "Type not specified",
         owner: propertyData.owner,
-        isVerified: propertyData.isVerified,
-        registrationDate: new Date(blockTimestamp * 1000),
+        isVerified: propertyData.isVerified || false,
+        registrationDate:
+          existingProperty?.registrationDate || new Date(blockTimestamp * 1000),
         lastTransferDate: new Date(blockTimestamp * 1000),
         transactions: [
+          ...(existingProperty?.transactions || []),
           {
-            type: "REGISTRATION",
+            type: existingProperty ? "UPDATE" : "REGISTRATION",
             from: txReceipt.from,
             to: txReceipt.to,
             transactionHash: txHash,
             blockNumber: Number(txReceipt.blockNumber),
             timestamp: new Date(blockTimestamp * 1000),
+            locality: locality,
+            blockchainId: propertyData.blockchainId,
           },
         ],
       };
 
-      await db.collection("blockchainTxns").insertOne(propertyDoc);
+      console.log("🔍 BLOCKCHAIN SYNC: Upserting property doc:", {
+        propertyId: propertyDoc.propertyId,
+        currentBlockchainId: propertyDoc.currentBlockchainId,
+        locality: propertyDoc.locality,
+      });
+
+      // Use upsert to handle both new properties and updates
+      const upsertResult = await db
+        .collection("blockchainTxns")
+        .updateOne(
+          { propertyId: propertyData.propertyId },
+          { $set: propertyDoc },
+          { upsert: true }
+        );
+
+      // Create indices for efficient querying
+      await db
+        .collection("blockchainTxns")
+        .createIndex({ "blockchainIds.id": 1 });
+      await db
+        .collection("blockchainTxns")
+        .createIndex({ "transactions.transactionHash": 1 });
+
+      // Verify the upsert
+      const verifyDoc = await db
+        .collection("blockchainTxns")
+        .findOne({ propertyId: propertyData.propertyId });
+      console.log("🔍 BLOCKCHAIN SYNC: Verification of upserted doc:", {
+        propertyId: verifyDoc.propertyId,
+        currentBlockchainId: verifyDoc.currentBlockchainId,
+        blockchainIds: verifyDoc.blockchainIds,
+        locality: verifyDoc.locality,
+      });
+
       return propertyDoc;
     } catch (error) {
-      console.error("Error in syncPropertyToMongoDB:", error);
+      console.error("🚨 Error in syncPropertyToMongoDB:", error);
+      console.error("🚨 Error details:", {
+        message: error.message,
+        stack: error.stack,
+        propertyData: JSON.stringify(propertyData, null, 2),
+        txHash: txHash,
+      });
       throw error;
     }
   }
@@ -172,18 +248,15 @@ class BlockchainSync {
 
       for (const property of properties) {
         try {
-          const deterministicId = this.generateDeterministicId({
-            propertyId: property.propertyId,
-            propertyName: property.propertyName,
-            locality: property.location,
-          });
-
           console.log(`Processing property ${property.propertyId}`);
 
-          // Check if property exists on chain
+          // Generate new blockchain ID
+          const newBlockchainId = this.generateDeterministicId(property);
+
+          // Check if property exists on chain using current blockchain ID
           let propertyExists = false;
           try {
-            await this.contract.methods.getProperty(deterministicId).call();
+            await this.contract.methods.getProperty(newBlockchainId).call();
             propertyExists = true;
             console.log(
               `Property ${property.propertyId} already exists on chain`
@@ -197,27 +270,26 @@ class BlockchainSync {
             const registerTx = await this.contract.methods
               .registerProperty(
                 property.propertyId,
-                property.propertyName || "",
-                property.location || "",
-                property.propertyType || ""
+                property.propertyName || "Name not specified",
+                property.locality || "Locality not specified",
+                property.propertyType || "Type not specified"
               )
               .send({
                 from: deployer,
                 gas: 500000,
               });
 
-            console.log(
-              `Property registered successfully. Transaction hash: ${registerTx.transactionHash}`
-            );
-
-            // Update MongoDB with new transaction
+            // Update MongoDB with new blockchain ID and transaction
             await db.collection("blockchainTxns").updateOne(
               { propertyId: property.propertyId },
               {
-                $set: {
-                  blockchainId: deterministicId,
-                },
+                $set: { currentBlockchainId: newBlockchainId },
                 $push: {
+                  blockchainIds: {
+                    id: newBlockchainId,
+                    txHash: registerTx.transactionHash,
+                    timestamp: new Date(),
+                  },
                   transactions: {
                     type: "RESTORATION",
                     from: deployer,
@@ -225,9 +297,15 @@ class BlockchainSync {
                     transactionHash: registerTx.transactionHash,
                     blockNumber: registerTx.blockNumber,
                     timestamp: new Date(),
+                    locality: property.locality,
+                    blockchainId: newBlockchainId,
                   },
                 },
               }
+            );
+
+            console.log(
+              `Property registered successfully. Transaction hash: ${registerTx.transactionHash}`
             );
           }
 
@@ -235,17 +313,15 @@ class BlockchainSync {
           if (property.owner) {
             let ownerAddress;
 
-            // Check if owner is already an Ethereum address
             if (this.web3.utils.isAddress(property.owner)) {
               ownerAddress = property.owner;
             } else if (property.owner.includes("@")) {
-              // If it's an email, look up the wallet address
               ownerAddress = await this.getWalletAddress(property.owner);
             }
 
             if (ownerAddress) {
               await this.transferOwnership(
-                deterministicId,
+                newBlockchainId,
                 ownerAddress,
                 deployer
               );
