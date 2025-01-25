@@ -13,11 +13,19 @@ async function restoreBlockchain() {
       contractsPath,
       "contracts/PropertyRegistry.sol/PropertyRegistry.json"
     );
-    const addressPath = path.join(contractsPath, "contract-address.json");
+    const addressPath = path.join(contractsPath, "contract-addresses.json"); // Fixed filename
 
-    if (!fs.existsSync(artifactPath) || !fs.existsSync(addressPath)) {
+    if (!fs.existsSync(artifactPath)) {
+      console.error(`Artifact not found at: ${artifactPath}`);
       throw new Error(
-        "Contract files not found. Please run npm run compile && npm run deploy first"
+        "Contract artifacts not found. Please run npm run compile && npm run deploy first"
+      );
+    }
+
+    if (!fs.existsSync(addressPath)) {
+      console.error(`Addresses not found at: ${addressPath}`);
+      throw new Error(
+        "Contract addresses file not found. Please run npm run compile && npm run deploy first"
       );
     }
 
@@ -35,7 +43,7 @@ async function restoreBlockchain() {
     console.log("Connected to MongoDB successfully");
 
     // Initialize BlockchainSync with the MongoDB client
-    const blockchainSync = new BlockchainSync(client, "trustvault"); // Replace with your database name
+    const blockchainSync = new BlockchainSync(client, "trustvault");
 
     // Perform restoration
     await blockchainSync.restoreBlockchainState();
@@ -45,12 +53,10 @@ async function restoreBlockchain() {
     console.error("Error in restore script:", error);
     process.exit(1);
   } finally {
-    // Close MongoDB connection
     if (client) {
       await client.close();
     }
   }
 }
 
-// Execute the restore function
 restoreBlockchain();

@@ -23,7 +23,7 @@
   },
   "homepage": "https://github.com/zs0c131y/TrustVault#readme",
   "dependencies": {
-    "@openzeppelin/contracts": "^5.1.0",
+    "@openzeppelin/contracts": "^5.2.0",
     "@truffle/contract": "^4.6.31",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^2.4.3",

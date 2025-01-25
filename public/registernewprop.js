@@ -1353,30 +1353,54 @@ async function registerPropertyOnBlockchain(propertyData) {
   try {
     // Check if MetaMask is installed
     if (!window.ethereum) {
-      throw new Error("MetaMask not installed");
+      throw new Error(
+        "MetaMask not installed. Please install MetaMask to continue."
+      );
     }
 
-    // Get accounts
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts",
-    });
-
-    if (!accounts || accounts.length === 0) {
-      throw new Error("No MetaMask account available");
+    // Get accounts with retry logic
+    let accounts;
+    for (let i = 0; i < 3; i++) {
+      try {
+        accounts = await window.ethereum.request({
+          method: "eth_requestAccounts",
+        });
+        if (accounts && accounts.length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error) {
+        if (i === 2)
+          throw new Error(
+            "Failed to connect to MetaMask. Please check your connection."
+          );
+      }
     }
 
     const account = accounts[0];
 
-    // Format property data
+    // Format property data with explicit locality
     const formattedData = {
-      propertyId: propertyData.propertyId,
-      propertyName:
-        `${propertyData.plotNumber} ${propertyData.propertyName}`.trim(),
-      location: `${propertyData.street}, ${propertyData.locality}, ${propertyData.city}, ${propertyData.state}`,
-      propertyType: propertyData.propertyType,
+      propertyId: String(propertyData.propertyId || "").trim(),
+      propertyName: propertyData.plotNumber
+        ? `${propertyData.plotNumber} ${propertyData.propertyName || ""}`.trim()
+        : propertyData.propertyName?.trim() || "",
+      location: propertyData.locality
+        ? `${propertyData.street || ""}, ${propertyData.locality}, ${
+            propertyData.city
+          }, ${propertyData.state}`.trim()
+        : "",
+      propertyType: String(propertyData.propertyType || "").trim(),
     };
 
-    // Get contract instance
+    // Validate required fields
+    if (!formattedData.propertyId) throw new Error("Property ID is required");
+    if (!formattedData.location)
+      throw new Error("Property location details are incomplete");
+    if (!formattedData.propertyType)
+      throw new Error("Property type is required");
+
+    console.log("Formatted property data:", formattedData);
+
+    // Create contract method
     const registerMethod = contractInstance.methods.registerProperty(
       formattedData.propertyId,
       formattedData.propertyName,
@@ -1384,75 +1408,85 @@ async function registerPropertyOnBlockchain(propertyData) {
       formattedData.propertyType
     );
 
-    // Get gas estimate
-    let gasEstimate;
-    try {
-      gasEstimate = await registerMethod.estimateGas({ from: account });
-      console.log("Gas estimate:", gasEstimate);
-    } catch (error) {
-      console.error("Gas estimation failed:", error);
-      throw new Error("Failed to estimate gas. The transaction might fail.");
-    }
-
-    // Add gas buffer
-    const gasLimit = Math.ceil(gasEstimate * 1.2);
-
-    // Get current gas price
+    // Estimate gas with safety margin
+    const gasEstimate = await registerMethod.estimateGas({ from: account });
+    const gasLimit = Math.ceil(gasEstimate * 1.2); // 20% buffer
     const gasPrice = await web3Instance.eth.getGasPrice();
 
-    // Send transaction
+    console.log("Transaction parameters:", {
+      gasEstimate,
+      gasLimit,
+      gasPrice: web3Instance.utils.fromWei(gasPrice, "gwei") + " gwei",
+    });
+
+    // Update button state
     submitButton.textContent = "Confirm in MetaMask...";
+
+    // Send transaction
     const transaction = await registerMethod.send({
       from: account,
       gas: gasLimit,
       gasPrice: gasPrice,
     });
 
-    // After the transaction is sent:
-    console.log("Transaction receipt:", transaction);
-    console.log("All events:", transaction.events);
+    console.log("Transaction successful:", transaction);
 
-    let blockchainId;
+    // Extract blockchain ID from events
+    let blockchainId = null;
 
-    if (transaction.events && Object.keys(transaction.events).length > 0) {
-      // Get the first event even if it's not named correctly
-      const event = transaction.events[0];
-      console.log("Event data:", event);
+    if (transaction.events && transaction.events.PropertyRegistered) {
+      const event = transaction.events.PropertyRegistered;
+      blockchainId = event.returnValues.blockchainId || event.returnValues[0];
+      console.log("BlockchainId from event:", blockchainId);
+    }
 
-      // Parse the raw data from the event
-      if (event.raw && event.raw.topics && event.raw.topics.length > 1) {
-        // The blockchainId is the first indexed parameter, which is the second topic
-        blockchainId = event.raw.topics[1];
-        // Convert from bytes32 to address format
-        blockchainId = "0x" + blockchainId.slice(26).toLowerCase();
+    // Fallback to transaction receipt logs if event parsing fails
+    if (!blockchainId && transaction.logs && transaction.logs.length > 0) {
+      const relevantLog = transaction.logs.find(
+        (log) =>
+          log.topics[0] ===
+          web3Instance.utils.sha3(
+            "PropertyRegistered(address,string,string,address)"
+          )
+      );
 
-        console.log("Extracted blockchainId:", blockchainId);
+      if (relevantLog) {
+        blockchainId = "0x" + relevantLog.topics[1].slice(26).toLowerCase();
+        console.log("BlockchainId from logs:", blockchainId);
       }
     }
 
+    // Final fallback
     if (!blockchainId) {
-      // As fallback, try to get the contract address where the event was emitted
-      blockchainId = event.address;
-      console.log("Using contract address as fallback:", blockchainId);
+      blockchainId = transaction.events.PropertyRegistered.address;
+      console.log("Using contract address as blockchainId:", blockchainId);
     }
 
     if (!blockchainId) {
-      throw new Error("Could not determine blockchain ID");
+      throw new Error("Failed to extract blockchain ID from transaction");
+    }
+
+    // Verify the registration
+    try {
+      const propertyDetails = await contractInstance.methods
+        .getProperty(blockchainId)
+        .call();
+      console.log("Property verification successful:", propertyDetails);
+    } catch (error) {
+      console.warn("Property verification warning:", error);
+      // Continue despite verification error as the transaction was successful
     }
 
     return {
       success: true,
-      blockchainId: blockchainId,
+      blockchainId,
       transactionHash: transaction.transactionHash,
       blockNumber: transaction.blockNumber,
       locality: formattedData.location,
     };
   } catch (error) {
-    console.error("Registration error:", error);
-    return {
-      success: false,
-      error: error.message || "Transaction failed",
-    };
+    console.error("Blockchain registration error:", error);
+    throw new Error(error.message || "Transaction failed");
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "Continue";
@@ -1751,4 +1785,4 @@ document.addEventListener("DOMContentLoaded", () => {
   // debugWeb3Setup().then(console.log);
 });
 
-export { checkAuthentication, initializeForm };
+export { checkAuthentication, initializeForm, registerPropertyOnBlockchain };

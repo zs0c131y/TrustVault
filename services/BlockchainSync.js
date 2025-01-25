@@ -22,32 +22,52 @@ class BlockchainSync {
         );
       }
 
-      const artifactPath = path.join(
+      // Update paths to match your deployment structure
+      const propertyRegistryPath = path.join(
         contractsPath,
         "contracts/PropertyRegistry.sol/PropertyRegistry.json"
       );
-      const addressPath = path.join(contractsPath, "contract-address.json");
+      const addressesPath = path.join(contractsPath, "contract-addresses.json");
 
-      if (!fs.existsSync(artifactPath) || !fs.existsSync(addressPath)) {
+      if (
+        !fs.existsSync(propertyRegistryPath) ||
+        !fs.existsSync(addressesPath)
+      ) {
+        console.error("Looking for files at:", {
+          propertyRegistryPath,
+          addressesPath,
+        });
         throw new Error(
           "Contract files not found. Please run compilation and deployment first"
         );
       }
 
-      const contractAddress = JSON.parse(
-        fs.readFileSync(addressPath)
-      ).PropertyRegistry;
-      const contractArtifact = JSON.parse(fs.readFileSync(artifactPath));
+      // Read contract addresses from the new format
+      const addresses = JSON.parse(fs.readFileSync(addressesPath));
+      const propertyContractAddress = addresses.PropertyRegistry;
+
+      if (!propertyContractAddress) {
+        throw new Error(
+          "PropertyRegistry address not found in contract-addresses.json"
+        );
+      }
+
+      const propertyRegistryArtifact = JSON.parse(
+        fs.readFileSync(propertyRegistryPath)
+      );
 
       this.contract = new this.web3.eth.Contract(
-        contractArtifact.abi,
-        contractAddress
+        propertyRegistryArtifact.abi,
+        propertyContractAddress
       );
 
       console.log("BlockchainSync initialized successfully");
-      console.log("Contract Address:", contractAddress);
+      console.log("PropertyRegistry Address:", propertyContractAddress);
     } catch (error) {
       console.error("Failed to initialize BlockchainSync:", error.message);
+      if (error.code === "ENOENT") {
+        console.error("File not found error. Current directory:", __dirname);
+      }
       throw error;
     }
   }

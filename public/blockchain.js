@@ -3,38 +3,101 @@ let web3Instance;
 let contractInstance;
 
 // Contract ABI - Including getProperty function
-const CONTRACT_ABI = [
+export const CONTRACT_ABI = [
   {
     inputs: [
-      { internalType: "string", name: "_propertyId", type: "string" },
-      { internalType: "string", name: "_propertyName", type: "string" },
-      { internalType: "string", name: "_location", type: "string" },
-      { internalType: "string", name: "_propertyType", type: "string" },
+      {
+        internalType: "string",
+        name: "_propertyId",
+        type: "string",
+      },
+      {
+        internalType: "string",
+        name: "_propertyName",
+        type: "string",
+      },
+      {
+        internalType: "string",
+        name: "_location",
+        type: "string",
+      },
+      {
+        internalType: "string",
+        name: "_propertyType",
+        type: "string",
+      },
     ],
     name: "registerProperty",
-    outputs: [{ internalType: "address", name: "", type: "address" }],
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+    ],
     stateMutability: "nonpayable",
     type: "function",
   },
   {
     inputs: [
-      { internalType: "address", name: "_blockchainId", type: "address" },
+      {
+        internalType: "address",
+        name: "_blockchainId",
+        type: "address",
+      },
+    ],
+    name: "verifyProperty",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "_blockchainId",
+        type: "address",
+      },
     ],
     name: "getProperty",
     outputs: [
       {
         components: [
-          { internalType: "string", name: "propertyId", type: "string" },
-          { internalType: "string", name: "propertyName", type: "string" },
-          { internalType: "string", name: "location", type: "string" },
-          { internalType: "string", name: "propertyType", type: "string" },
-          { internalType: "address", name: "owner", type: "address" },
+          {
+            internalType: "string",
+            name: "propertyId",
+            type: "string",
+          },
+          {
+            internalType: "string",
+            name: "propertyName",
+            type: "string",
+          },
+          {
+            internalType: "string",
+            name: "location",
+            type: "string",
+          },
+          {
+            internalType: "string",
+            name: "propertyType",
+            type: "string",
+          },
+          {
+            internalType: "address",
+            name: "owner",
+            type: "address",
+          },
           {
             internalType: "uint256",
             name: "registrationDate",
             type: "uint256",
           },
-          { internalType: "bool", name: "isVerified", type: "bool" },
+          {
+            internalType: "bool",
+            name: "isVerified",
+            type: "bool",
+          },
           {
             internalType: "uint256",
             name: "lastTransferDate",
@@ -49,147 +112,35 @@ const CONTRACT_ABI = [
     stateMutability: "view",
     type: "function",
   },
-  {
-    inputs: [
-      { internalType: "address", name: "_blockchainId", type: "address" },
-    ],
-    name: "verifyProperty",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [
-      { internalType: "address", name: "_blockchainId", type: "address" },
-      { internalType: "address", name: "_newOwner", type: "address" },
-    ],
-    name: "transferOwnership",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "string", name: "", type: "string" }],
-    name: "propertyIdToAddress",
-    outputs: [{ internalType: "address", name: "", type: "address" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "address", name: "", type: "address" }],
-    name: "properties",
-    outputs: [
-      { internalType: "string", name: "propertyId", type: "string" },
-      { internalType: "string", name: "propertyName", type: "string" },
-      { internalType: "string", name: "location", type: "string" },
-      { internalType: "string", name: "propertyType", type: "string" },
-      { internalType: "address", name: "owner", type: "address" },
-      { internalType: "uint256", name: "registrationDate", type: "uint256" },
-      { internalType: "bool", name: "isVerified", type: "bool" },
-      { internalType: "uint256", name: "lastTransferDate", type: "uint256" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    anonymous: false,
-    inputs: [
-      {
-        indexed: true,
-        internalType: "address",
-        name: "blockchainId",
-        type: "address",
-      },
-      {
-        indexed: false,
-        internalType: "string",
-        name: "propertyId",
-        type: "string",
-      },
-      {
-        indexed: false,
-        internalType: "string",
-        name: "propertyName",
-        type: "string",
-      },
-      {
-        indexed: false,
-        internalType: "address",
-        name: "owner",
-        type: "address",
-      },
-    ],
-    name: "PropertyRegistered",
-    type: "event",
-  },
-  {
-    anonymous: false,
-    inputs: [
-      {
-        indexed: true,
-        internalType: "address",
-        name: "blockchainId",
-        type: "address",
-      },
-    ],
-    name: "PropertyVerified",
-    type: "event",
-  },
-  {
-    anonymous: false,
-    inputs: [
-      {
-        indexed: true,
-        internalType: "address",
-        name: "blockchainId",
-        type: "address",
-      },
-      {
-        indexed: true,
-        internalType: "address",
-        name: "previousOwner",
-        type: "address",
-      },
-      {
-        indexed: true,
-        internalType: "address",
-        name: "newOwner",
-        type: "address",
-      },
-      {
-        indexed: false,
-        internalType: "uint256",
-        name: "transferDate",
-        type: "uint256",
-      },
-    ],
-    name: "OwnershipTransferred",
-    type: "event",
-  },
 ];
 
 // Contract address
-const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+export const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 
-async function initWeb3() {
-  if (!window.ethereum) {
-    throw new Error("MetaMask is not installed");
+// Initialize Web3
+export async function initWeb3() {
+  if (typeof window.ethereum !== "undefined") {
+    const web3 = new Web3(window.ethereum);
+    try {
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      return web3;
+    } catch (error) {
+      throw new Error("User denied account access");
+    }
+  } else {
+    throw new Error("Please install MetaMask");
   }
+}
 
-  const web3 = new Web3(window.ethereum);
-  const accounts = await web3.eth.getAccounts();
-
-  // Create contract instance
-  const propertyContract = new web3.eth.Contract(
-    CONTRACT_ABI,
-    CONTRACT_ADDRESS
-  );
-
-  return {
-    web3,
-    propertyContract,
-    account: accounts[0],
-  };
+// Get gas price
+export async function getGasPrice(web3) {
+  try {
+    const gasPrice = await web3.eth.getGasPrice();
+    return Math.ceil(Number(gasPrice) * 1.1); // Add 10% buffer
+  } catch (error) {
+    console.error("Error getting gas price:", error);
+    throw error;
+  }
 }
 
 async function isWalletConnected() {

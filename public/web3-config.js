@@ -1,6 +1,6 @@
-const CONTRACT_ABI = [
+// Contract ABIs
+const PROPERTY_REGISTRY_ABI = [
   {
-    // Register Property Function
     inputs: [
       { internalType: "string", name: "_propertyId", type: "string" },
       { internalType: "string", name: "_propertyName", type: "string" },
@@ -13,9 +13,8 @@ const CONTRACT_ABI = [
     type: "function",
   },
   {
-    // Verify Property Function
     inputs: [
-      { internalType: "address", name: "_blockchainId", type: "address" },
+      { internalType: "address", name: "blockchainId", type: "address" },
     ],
     name: "verifyProperty",
     outputs: [],
@@ -23,44 +22,27 @@ const CONTRACT_ABI = [
     type: "function",
   },
   {
-    // Get Property Function
     inputs: [
-      { internalType: "address", name: "_blockchainId", type: "address" },
+      { internalType: "address", name: "blockchainId", type: "address" },
     ],
     name: "getProperty",
     outputs: [
-      {
-        components: [
-          { internalType: "string", name: "propertyId", type: "string" },
-          { internalType: "string", name: "propertyName", type: "string" },
-          { internalType: "string", name: "location", type: "string" },
-          { internalType: "string", name: "propertyType", type: "string" },
-          { internalType: "address", name: "owner", type: "address" },
-          {
-            internalType: "uint256",
-            name: "registrationDate",
-            type: "uint256",
-          },
-          { internalType: "bool", name: "isVerified", type: "bool" },
-          {
-            internalType: "uint256",
-            name: "lastTransferDate",
-            type: "uint256",
-          },
-        ],
-        internalType: "struct PropertyRegistry.Property",
-        name: "",
-        type: "tuple",
-      },
+      { internalType: "string", name: "propertyId", type: "string" },
+      { internalType: "string", name: "propertyName", type: "string" },
+      { internalType: "string", name: "location", type: "string" },
+      { internalType: "string", name: "propertyType", type: "string" },
+      { internalType: "address", name: "owner", type: "address" },
+      { internalType: "uint256", name: "registrationDate", type: "uint256" },
+      { internalType: "bool", name: "isVerified", type: "bool" },
+      { internalType: "uint256", name: "lastTransferDate", type: "uint256" },
     ],
     stateMutability: "view",
     type: "function",
   },
   {
-    // Transfer Ownership Function
     inputs: [
-      { internalType: "address", name: "_blockchainId", type: "address" },
-      { internalType: "address", name: "_newOwner", type: "address" },
+      { internalType: "address", name: "blockchainId", type: "address" },
+      { internalType: "address", name: "newOwner", type: "address" },
     ],
     name: "transferOwnership",
     outputs: [],
@@ -68,7 +50,6 @@ const CONTRACT_ABI = [
     type: "function",
   },
   {
-    // Property Registered Event
     anonymous: false,
     inputs: [
       {
@@ -90,7 +71,7 @@ const CONTRACT_ABI = [
         type: "string",
       },
       {
-        indexed: false,
+        indexed: true,
         internalType: "address",
         name: "owner",
         type: "address",
@@ -100,7 +81,6 @@ const CONTRACT_ABI = [
     type: "event",
   },
   {
-    // Property Verified Event
     anonymous: false,
     inputs: [
       {
@@ -114,7 +94,6 @@ const CONTRACT_ABI = [
     type: "event",
   },
   {
-    // Ownership Transferred Event
     anonymous: false,
     inputs: [
       {
@@ -147,243 +126,281 @@ const CONTRACT_ABI = [
   },
 ];
 
-// Contract address on Hardhat network
-const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const DOCUMENT_VERIFICATION_ABI = [
+  {
+    inputs: [],
+    stateMutability: "nonpayable",
+    type: "constructor",
+  },
+  {
+    inputs: [
+      { internalType: "string", name: "documentHash", type: "string" },
+      { internalType: "string", name: "documentType", type: "string" },
+      { internalType: "address", name: "issuedTo", type: "address" },
+      { internalType: "uint256", name: "expiryDate", type: "uint256" },
+      { internalType: "string", name: "metadataURI", type: "string" },
+    ],
+    name: "verifyDocument",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "bytes32", name: "documentId", type: "bytes32" }],
+    name: "revokeDocument",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "bytes32", name: "documentId", type: "bytes32" },
+      { internalType: "string", name: "newMetadataURI", type: "string" },
+      { internalType: "uint256", name: "newExpiryDate", type: "uint256" },
+    ],
+    name: "updateDocument",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "verifier", type: "address" }],
+    name: "addVerifier",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+];
 
-// Function to check if MetaMask is installed and unlocked
-async function checkMetaMaskConnection() {
+// Contract addresses
+const CONTRACT_ADDRESSES = {
+  PropertyRegistry: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  DocumentVerification: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+};
+
+// Network configurations
+const NETWORKS = {
+  hardhat: {
+    chainId: 31337,
+    name: "Hardhat Network",
+    rpcUrl: "http://127.0.0.1:8545/",
+    explorer: "",
+  },
+  sepolia: {
+    chainId: 11155111,
+    name: "Sepolia Testnet",
+    rpcUrl: "https://eth-sepolia.g.alchemy.com/v2/your-api-key",
+    explorer: "https://sepolia.etherscan.io",
+  },
+};
+
+// Utility function to get the target network based on hostname
+function getTargetNetwork() {
+  // Check if we're in a development environment based on hostname
+  const isDevelopment =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+  return isDevelopment ? NETWORKS.hardhat : NETWORKS.sepolia;
+}
+
+// MetaMask connection check with retry logic
+async function checkMetaMaskConnection(retries = 3) {
   if (!window.ethereum) {
-    throw new Error("MetaMask is not installed!");
-  }
-
-  try {
-    // Check if already connected
-    const accounts = await window.ethereum.request({
-      method: "eth_accounts",
-    });
-
-    if (accounts.length === 0) {
-      // If not connected, request connection
-      await window.ethereum.request({
-        method: "eth_requestAccounts",
-      });
-    }
-
-    return true;
-  } catch (error) {
-    console.error("MetaMask connection error:", error);
-    throw new Error("Failed to connect to MetaMask");
-  }
-}
-
-// Initialize Web3 and smart contract
-async function initWeb3() {
-  try {
-    // First check MetaMask connection
-    await checkMetaMaskConnection();
-
-    let web3;
-    if (window.Web3) {
-      web3 = new Web3(window.ethereum);
-    } else if (window.ethers) {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      web3 = {
-        eth: {
-          getAccounts: async () => {
-            const signer = await provider.getSigner();
-            return [await signer.getAddress()];
-          },
-          Contract: function (abi, address, options) {
-            const contract = new ethers.Contract(address, abi, provider);
-            return contract;
-          },
-          getCode: async (address) => {
-            return await provider.getCode(address);
-          },
-          getGasPrice: async () => {
-            return (await provider.getFeeData()).gasPrice.toString();
-          },
-          estimateGas: async (txObject) => {
-            const signer = await provider.getSigner();
-            const contract = new ethers.Contract(
-              txObject.to,
-              CONTRACT_ABI,
-              signer
-            );
-            return await contract.estimateGas[txObject.data](txObject.params);
-          },
-        },
-        utils: {
-          toHex: (num) => ethers.toBeHex(num),
-          fromWei: (num) => ethers.formatEther(num),
-          isAddress: (address) => ethers.isAddress(address),
-        },
-      };
-    } else {
-      throw new Error("No Web3 or ethers library found");
-    }
-
-    // Get the current account
-    const accounts = await web3.eth.getAccounts();
-    const account = accounts[0];
-
-    if (!account) {
-      throw new Error("No account found. Please connect to MetaMask.");
-    }
-
-    // Create contract instance
-    const propertyContract = new web3.eth.Contract(
-      CONTRACT_ABI,
-      CONTRACT_ADDRESS,
-      {
-        from: account,
-        gas: 5000000,
-        gasPrice: "20000000000",
-      }
+    throw new Error(
+      "MetaMask is not installed! Please install MetaMask to use this application."
     );
+  }
 
-    // Verify contract deployment
-    const code = await web3.eth.getCode(CONTRACT_ADDRESS);
-    if (code === "0x") {
-      throw new Error("Contract not deployed at specified address");
+  for (let i = 0; i < retries; i++) {
+    try {
+      const accounts = await window.ethereum.request({
+        method: "eth_accounts",
+      });
+
+      if (accounts.length === 0) {
+        const newAccounts = await window.ethereum.request({
+          method: "eth_requestAccounts",
+        });
+        return newAccounts[0];
+      }
+
+      return accounts[0];
+    } catch (error) {
+      if (i === retries - 1) {
+        console.error("MetaMask connection error:", error);
+        throw new Error(
+          "Failed to connect to MetaMask. Please check your MetaMask connection and try again."
+        );
+      }
+      // Wait 1 second before retrying
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-
-    // Check network
-    await checkNetwork(web3);
-
-    // Add event listeners for network and account changes
-    window.ethereum.on("chainChanged", () => {
-      console.log("Network changed. Reloading...");
-      window.location.reload();
-    });
-
-    window.ethereum.on("accountsChanged", () => {
-      console.log("Account changed. Reloading...");
-      window.location.reload();
-    });
-
-    return {
-      web3,
-      propertyContract,
-      account,
-      initialized: true,
-    };
-  } catch (error) {
-    console.error("Failed to initialize Web3:", error);
-    throw error;
   }
 }
 
-// Check if the correct network is selected
+// Network check and switch if necessary
 async function checkNetwork(web3) {
   try {
     const chainId = await web3.eth.getChainId();
+    const targetNetwork = getTargetNetwork();
 
-    if (chainId !== 31337) {
-      // Hardhat network chainId
-      await window.ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x7a69" }], // 31337 in hex
-      });
+    if (chainId !== targetNetwork.chainId) {
+      try {
+        await window.ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: `0x${targetNetwork.chainId.toString(16)}` }],
+        });
+      } catch (switchError) {
+        // This error code indicates that the chain has not been added to MetaMask
+        if (switchError.code === 4902) {
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: `0x${targetNetwork.chainId.toString(16)}`,
+                chainName: targetNetwork.name,
+                nativeCurrency: {
+                  name: "ETH",
+                  symbol: "ETH",
+                  decimals: 18,
+                },
+                rpcUrls: [targetNetwork.rpcUrl],
+                blockExplorerUrls: targetNetwork.explorer
+                  ? [targetNetwork.explorer]
+                  : [],
+              },
+            ],
+          });
+        } else {
+          throw new Error(
+            `Failed to switch to the correct network. Please manually switch to ${targetNetwork.name} in MetaMask.`
+          );
+        }
+      }
     }
     return true;
   } catch (error) {
-    if (error.code === 4902) {
-      // Network doesn't exist, add it
-      await window.ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: "0x7a69",
-            chainName: "Hardhat Network",
-            nativeCurrency: {
-              name: "ETH",
-              symbol: "ETH",
-              decimals: 18,
-            },
-            rpcUrls: ["http://127.0.0.1:8545/"],
-            blockExplorerUrls: [],
-          },
-        ],
-      });
-    } else {
-      throw error;
-    }
-  }
-}
-
-// Function to get current gas price with safety margin
-async function getGasPrice(web3) {
-  const gasPrice = await web3.eth.getGasPrice();
-  return Math.ceil(Number(gasPrice) * 1.1); // Add 10% margin
-}
-
-// Function to handle property transfers
-async function transferProperty(
-  web3,
-  propertyContract,
-  blockchainId,
-  newOwnerAddress
-) {
-  try {
-    const accounts = await web3.eth.getAccounts();
-    const currentAccount = accounts[0];
-
-    // First verify the current owner
-    const propertyInfo = await propertyContract.methods
-      .getProperty(blockchainId)
-      .call();
-
-    if (propertyInfo.owner.toLowerCase() !== currentAccount.toLowerCase()) {
-      throw new Error("Only the current owner can transfer the property");
-    }
-
-    // Prepare the transfer transaction
-    const transferMethod = propertyContract.methods.transferOwnership(
-      blockchainId,
-      newOwnerAddress
-    );
-
-    // Estimate gas
-    const gasEstimate = await transferMethod.estimateGas({
-      from: currentAccount,
-    });
-    const gasPrice = await getGasPrice(web3);
-
-    // Send the transaction
-    const receipt = await transferMethod.send({
-      from: currentAccount,
-      gas: Math.ceil(gasEstimate * 1.2), // Add 20% margin for gas estimate
-      gasPrice: gasPrice,
-    });
-
-    // Check for the OwnershipTransferred event
-    const transferEvent = receipt.events.OwnershipTransferred;
-    if (!transferEvent) {
-      throw new Error("Transfer event not found in transaction receipt");
-    }
-
-    return {
-      success: true,
-      transactionHash: receipt.transactionHash,
-      blockchainId: transferEvent.returnValues.blockchainId,
-      previousOwner: transferEvent.returnValues.previousOwner,
-      newOwner: transferEvent.returnValues.newOwner,
-      transferDate: transferEvent.returnValues.transferDate,
-    };
-  } catch (error) {
-    console.error("Property transfer failed:", error);
+    console.error("Network switch error:", error);
     throw error;
   }
 }
 
-// Export all functions and constants
+// Get gas price with safety margin and maximum cap
+async function getGasPrice(web3) {
+  const gasPrice = await web3.eth.getGasPrice();
+  const maxGasPrice = web3.utils.toWei("150", "gwei"); // Maximum gas price cap
+  const suggestedGasPrice = Math.ceil(Number(gasPrice) * 1.1); // 10% margin
+  return Math.min(suggestedGasPrice, maxGasPrice);
+}
+
+// Main initialization function with proper error handling
+async function initWeb3() {
+  let web3Instance = null;
+  let propertyContract = null;
+  let documentContract = null;
+  let currentAccount = null;
+
+  try {
+    // Check MetaMask connection
+    currentAccount = await checkMetaMaskConnection();
+
+    // Initialize Web3
+    if (window.ethereum) {
+      web3Instance = new Web3(window.ethereum);
+    } else {
+      throw new Error("No Web3 provider found. Please install MetaMask.");
+    }
+
+    // Check and switch network if needed
+    await checkNetwork(web3Instance);
+
+    // Initialize contracts
+    propertyContract = new web3Instance.eth.Contract(
+      PROPERTY_REGISTRY_ABI,
+      CONTRACT_ADDRESSES.PropertyRegistry
+    );
+
+    documentContract = new web3Instance.eth.Contract(
+      DOCUMENT_VERIFICATION_ABI,
+      CONTRACT_ADDRESSES.DocumentVerification
+    );
+
+    // Verify contract deployments
+    const [propertyCode, documentCode] = await Promise.all([
+      web3Instance.eth.getCode(CONTRACT_ADDRESSES.PropertyRegistry),
+      web3Instance.eth.getCode(CONTRACT_ADDRESSES.DocumentVerification),
+    ]);
+
+    if (propertyCode === "0x" || documentCode === "0x") {
+      throw new Error(
+        "One or more contracts not deployed at specified addresses"
+      );
+    }
+
+    // Setup event listeners with debouncing
+    let reloadTimeout;
+    const debouncedReload = () => {
+      clearTimeout(reloadTimeout);
+      reloadTimeout = setTimeout(() => window.location.reload(), 1000);
+    };
+
+    window.ethereum.on("chainChanged", debouncedReload);
+    window.ethereum.on("accountsChanged", debouncedReload);
+
+    // Return initialized instances
+    return {
+      web3: web3Instance,
+      propertyContract,
+      documentContract,
+      account: currentAccount,
+      initialized: true,
+      networkInfo: getTargetNetwork(),
+    };
+  } catch (error) {
+    console.error("Failed to initialize Web3:", error);
+    throw new Error(`Blockchain initialization failed: ${error.message}`);
+  }
+}
+
+// Helper function for contract interactions with retry mechanism
+async function executeContractMethod(method, options = {}, maxRetries = 3) {
+  let lastError;
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const gasEstimate = await method.estimateGas(options);
+      const gasPrice = await getGasPrice(web3);
+
+      return await method.send({
+        ...options,
+        gas: Math.ceil(gasEstimate * 1.2), // 20% margin
+        gasPrice: gasPrice,
+      });
+    } catch (error) {
+      lastError = error;
+      if (i < maxRetries - 1) {
+        // Wait before retrying, with exponential backoff
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.pow(2, i) * 1000)
+        );
+        continue;
+      }
+    }
+  }
+
+  console.error("Contract method execution failed:", lastError);
+  throw lastError;
+}
+
+// Export everything needed for the application
 export {
   initWeb3,
   checkNetwork,
-  getGasPrice,
   checkMetaMaskConnection,
-  transferProperty,
-  CONTRACT_ABI,
-  CONTRACT_ADDRESS,
+  getGasPrice,
+  executeContractMethod,
+  PROPERTY_REGISTRY_ABI,
+  DOCUMENT_VERIFICATION_ABI,
+  CONTRACT_ADDRESSES,
+  NETWORKS,
 };

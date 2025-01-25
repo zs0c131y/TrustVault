@@ -1,8 +1,8 @@
 import { getToken, getAuthHeaders, isAuthenticated } from "./auth.js";
 import {
   initWeb3,
-  CONTRACT_ABI,
-  CONTRACT_ADDRESS,
+  PROPERTY_REGISTRY_ABI,
+  CONTRACT_ADDRESSES,
   getGasPrice,
 } from "./web3-config.js";
 
@@ -10,14 +10,13 @@ let web3Instance;
 let contractInstance;
 
 // Initialize Web3 and contract
+// Initialize Web3 and contract
 async function initializeBlockchain() {
   try {
-    // Comprehensive startup checks
     if (!window.ethereum) {
       throw new Error("MetaMask is not installed");
     }
 
-    // Request account access with more robust error handling
     try {
       await window.ethereum.request({ method: "eth_requestAccounts" });
     } catch (accessError) {
@@ -25,10 +24,7 @@ async function initializeBlockchain() {
       throw new Error("Please connect and authorize MetaMask");
     }
 
-    // Initialize Web3 with explicit provider
     web3Instance = new Web3(window.ethereum);
-
-    // Comprehensive network validation
     await checkNetwork(web3Instance);
 
     const accounts = await web3Instance.eth.getAccounts();
@@ -39,14 +35,16 @@ async function initializeBlockchain() {
     }
 
     console.log("Initializing contract with:", {
-      contractAddress: CONTRACT_ADDRESS,
-      abiMethods: CONTRACT_ABI.map((item) => item.name).filter(Boolean),
+      contractAddress: CONTRACT_ADDRESSES.PropertyRegistry,
+      abiMethods: PROPERTY_REGISTRY_ABI.map((item) => item.name).filter(
+        Boolean
+      ),
     });
 
     // Initialize contract with more detailed configuration
     contractInstance = new web3Instance.eth.Contract(
-      CONTRACT_ABI,
-      CONTRACT_ADDRESS,
+      PROPERTY_REGISTRY_ABI,
+      CONTRACT_ADDRESSES.PropertyRegistry,
       {
         from: accounts[0],
         gas: 5000000,
@@ -55,15 +53,14 @@ async function initializeBlockchain() {
     );
 
     // Verify contract deployment
-    const code = await web3Instance.eth.getCode(CONTRACT_ADDRESS);
+    const code = await web3Instance.eth.getCode(
+      CONTRACT_ADDRESSES.PropertyRegistry
+    );
     if (code === "0x") {
       throw new Error("Contract not deployed at specified address");
     }
 
     console.log("Contract Deployment Code Length:", code.length);
-
-    // Debug contract methods
-    // await debugContractMethods();
 
     // Add MetaMask listeners
     window.ethereum.on("accountsChanged", () => window.location.reload());
@@ -1235,15 +1232,13 @@ async function handlePincodeLookup(pincode, isAutofill, inputs) {
 }
 
 // Transfer property on blockchain
-// Updated transferPropertyOnBlockchain function with proper scope handling
 async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
-  console.log("DEBUG MODE: Starting simplified property transfer process");
+  console.log("Starting property transfer process");
 
   let propertyId = null;
   let blockchainAddress = null;
   let accounts = null;
   let currentAccount = null;
-  let data = null;
 
   try {
     // Basic validation
@@ -1257,15 +1252,14 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
     }
     currentAccount = accounts[0];
 
-    // Get property ID
+    // Get and validate property ID
     propertyId =
       typeof propertyData === "string" ? propertyData : propertyData.propertyId;
     if (!propertyId) {
       throw new Error("Property ID is required");
     }
 
-    // Get blockchain address
-    console.log("DEBUG: Fetching blockchain address for property:", propertyId);
+    // Get blockchain address from API
     const response = await fetch(`/api/registrations/${propertyId}`, {
       headers: getAuthHeaders(),
     });
@@ -1274,9 +1268,11 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       throw new Error("Failed to fetch property registration data");
     }
 
-    data = await response.json();
+    const data = await response.json();
+    console.log("API Response data:", data);
+
     if (!data?.propertyInfo?.blockchainId) {
-      throw new Error("Property blockchain ID not found");
+      throw new Error("Property blockchain ID not found in registration data");
     }
 
     // Format blockchain address
@@ -1284,48 +1280,87 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       ? data.propertyInfo.blockchainId
       : `0x${data.propertyInfo.blockchainId}`;
 
-    console.log("DEBUG: Transaction details:", {
-      contract: CONTRACT_ADDRESS,
-      property: blockchainAddress,
-      currentOwner: currentAccount,
-      newOwner: newOwnerAddress,
-    });
+    if (!web3Instance.utils.isAddress(blockchainAddress)) {
+      throw new Error(
+        `Invalid blockchain address format: ${blockchainAddress}`
+      );
+    }
 
-    // Create transfer method without ownership verification for testing
+    // Get property using the getProperty function
+    console.log("Fetching property from blockchain:", blockchainAddress);
+    const propertyInfo = await contractInstance.methods
+      .getProperty(blockchainAddress)
+      .call();
+    console.log("Property info from blockchain:", propertyInfo);
+
+    // Verify ownership
+    if (propertyInfo[4].toLowerCase() !== currentAccount.toLowerCase()) {
+      // Index 4 is owner in the returned array
+      throw new Error("You are not the current owner of this property");
+    }
+
+    // Validate new owner address
+    if (!web3Instance.utils.isAddress(newOwnerAddress)) {
+      throw new Error("Invalid new owner address format");
+    }
+
+    console.log(
+      "Property verification successful. Proceeding with transfer..."
+    );
+
+    // Get current gas price with buffer
+    const gasPrice = await web3Instance.eth.getGasPrice();
+    const adjustedGasPrice = Math.ceil(Number(gasPrice) * 1.1); // 10% buffer
+
+    // Create transfer method
     const transferMethod = contractInstance.methods.transferOwnership(
       blockchainAddress,
       newOwnerAddress
     );
 
-    // Get gas estimate
+    // Get account balance to ensure sufficient funds
+    const balance = await web3Instance.eth.getBalance(currentAccount);
+    console.log(
+      "Account balance:",
+      web3Instance.utils.fromWei(balance, "ether"),
+      "ETH"
+    );
+
+    // Estimate gas with full error handling
     let gasEstimate;
     try {
       gasEstimate = await transferMethod.estimateGas({
         from: currentAccount,
-        gas: 500000, // Set high initial gas for estimation
+        gas: 5000000, // Higher initial gas limit for estimation
       });
-      console.log("DEBUG: Gas estimate:", gasEstimate);
+      console.log("Gas estimate:", gasEstimate);
     } catch (gasError) {
-      console.error("DEBUG: Gas estimation error:", gasError);
-      gasEstimate = 500000; // Fallback gas limit
+      console.error("Gas estimation error:", gasError);
+
+      // If gas estimation fails, use a conservative default
+      gasEstimate = 300000;
+      console.log("Using default gas estimate:", gasEstimate);
     }
 
-    // Get current gas price with buffer
-    const gasPrice = await web3Instance.eth.getGasPrice();
-    const adjustedGasPrice = Math.ceil(Number(gasPrice) * 1.1); // Add 10% buffer
-    console.log("DEBUG: Using gas parameters:", {
-      gas: gasEstimate,
-      gasPrice: adjustedGasPrice,
-    });
+    // Calculate total gas cost
+    const gasCost = web3Instance.utils
+      .toBN(gasEstimate)
+      .mul(web3Instance.utils.toBN(adjustedGasPrice));
+    console.log(
+      "Estimated gas cost:",
+      web3Instance.utils.fromWei(gasCost, "ether"),
+      "ETH"
+    );
 
-    // Send transfer transaction with high gas limit
+    // Send transfer transaction with optimized gas parameters
+    console.log("Sending transfer transaction...");
     const receipt = await transferMethod.send({
       from: currentAccount,
-      gas: Math.ceil(gasEstimate * 1.5), // Add 50% buffer to gas estimate
+      gas: Math.ceil(gasEstimate * 1.2), // 20% buffer
       gasPrice: adjustedGasPrice,
     });
 
-    console.log("DEBUG: Transfer receipt:", receipt);
+    console.log("Transfer successful:", receipt);
 
     return {
       success: true,
@@ -1337,35 +1372,29 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       transactionHash: receipt.transactionHash,
     };
   } catch (error) {
-    console.error("DEBUG: Detailed error information:", {
-      message: error.message,
-      code: error.code,
-      data: error.data,
-      stack: error.stack,
+    console.error("Transfer failed:", {
+      error,
+      propertyId,
+      blockchainAddress,
+      currentAccount,
+      newOwnerAddress,
     });
 
-    // Add context to the error
-    const errorContext = {
-      propertyId: propertyId,
-      blockchainAddress: blockchainAddress,
-      currentAccount: accounts?.[0],
-      newOwnerAddress: newOwnerAddress,
-      contract: CONTRACT_ADDRESS,
-    };
-    console.log("DEBUG: Error context:", errorContext);
-
-    // Try to extract more detailed error information
-    if (error.message.includes("Internal JSON-RPC error")) {
-      const errorData = error.data || {};
-      console.log("DEBUG: RPC error details:", errorData);
-
-      // Check if it's a revert
-      if (errorData.message?.includes("revert")) {
-        throw new Error(`Contract reverted: ${errorData.message}`);
-      }
-
+    // Enhanced error handling with specific messages
+    if (error.message.includes("Property not found")) {
       throw new Error(
-        "Transaction failed. Please check the gas parameters and try again."
+        "Property not found on blockchain. Please verify the property is registered."
+      );
+    } else if (error.message.includes("Not the owner")) {
+      throw new Error("You are not the current owner of this property.");
+    } else if (error.message.includes("revert")) {
+      const revertReason = error.message.includes(":")
+        ? error.message.split(":")[1].trim()
+        : "Transaction reverted by the contract";
+      throw new Error(`Transaction reverted: ${revertReason}`);
+    } else if (error.message.includes("gas")) {
+      throw new Error(
+        "Gas estimation failed. The transaction might not be possible with current settings."
       );
     }
 
