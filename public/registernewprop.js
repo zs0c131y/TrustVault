@@ -1,16 +1,34 @@
 import { getToken, getAuthHeaders, isAuthenticated } from "./auth.js";
-import { initWeb3 } from "./web3-config.js";
-
-let web3Instance;
-let contractInstance;
+import {
+  initWeb3,
+  PROPERTY_REGISTRY_ABI,
+  CONTRACT_ADDRESSES,
+} from "./web3-config.js";
 
 // Initialize Web3 and contract
+let web3Instance = null;
+let contractInstance = null;
+
 async function initializeBlockchain() {
   try {
     const { web3, propertyContract } = await initWeb3();
-    web3Instance = web3;
-    contractInstance = propertyContract;
-    console.log("Blockchain initialized successfully");
+
+    // Assign to window object for global access
+    window.web3Instance = web3;
+    window.contractInstance = propertyContract;
+
+    // Verify contract is properly initialized
+    const code = await web3.eth.getCode(propertyContract.options.address);
+    if (code === "0x") {
+      throw new Error("Contract not deployed at specified address");
+    }
+
+    console.log("Blockchain initialized successfully", {
+      contractAddress: propertyContract.options.address,
+      hasContract: code !== "0x",
+      methods: Object.keys(propertyContract.methods),
+    });
+
     return true;
   } catch (error) {
     console.error("Failed to initialize blockchain:", error);
@@ -881,8 +899,12 @@ async function initializeForm() {
   if (await checkAuthentication()) {
     console.log("Authentication successful, initializing form...");
 
-    // Initialize blockchain
-    await initializeBlockchain();
+    // Initialize blockchain and await its completion
+    const blockchainInitialized = await initializeBlockchain();
+    if (!blockchainInitialized) {
+      console.error("Blockchain initialization failed");
+      return;
+    }
 
     // Prefill email
     await prefillUserEmail();
@@ -1351,131 +1373,53 @@ async function registerPropertyOnBlockchain(propertyData) {
   submitButton.textContent = "Processing...";
 
   try {
-    // Check if MetaMask is installed
-    if (!window.ethereum) {
-      throw new Error(
-        "MetaMask not installed. Please install MetaMask to continue."
-      );
+    // Use window instances
+    if (!window.web3Instance || !window.contractInstance) {
+      throw new Error("Blockchain not initialized. Please refresh the page.");
     }
 
-    // Get accounts with retry logic
-    let accounts;
-    for (let i = 0; i < 3; i++) {
-      try {
-        accounts = await window.ethereum.request({
-          method: "eth_requestAccounts",
-        });
-        if (accounts && accounts.length > 0) break;
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      } catch (error) {
-        if (i === 2)
-          throw new Error(
-            "Failed to connect to MetaMask. Please check your connection."
-          );
-      }
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts",
+    });
+
+    if (!accounts || accounts.length === 0) {
+      throw new Error("No MetaMask account available");
     }
 
     const account = accounts[0];
 
-    // Format property data with explicit locality
+    // Format property data
     const formattedData = {
       propertyId: String(propertyData.propertyId || "").trim(),
-      propertyName: propertyData.plotNumber
-        ? `${propertyData.plotNumber} ${propertyData.propertyName || ""}`.trim()
-        : propertyData.propertyName?.trim() || "",
-      location: propertyData.locality
-        ? `${propertyData.street || ""}, ${propertyData.locality}, ${
-            propertyData.city
-          }, ${propertyData.state}`.trim()
-        : "",
-      propertyType: String(propertyData.propertyType || "").trim(),
+      propertyName: String(
+        propertyData.plotNumber || "Plot number not specified"
+      ).trim(),
+      location: `${propertyData.street || ""}, ${propertyData.locality}, ${
+        propertyData.city
+      }, ${propertyData.state}`.trim(),
+      propertyType: String(propertyData.propertyType || "Not specified").trim(),
     };
 
-    // Validate required fields
-    if (!formattedData.propertyId) throw new Error("Property ID is required");
-    if (!formattedData.location)
-      throw new Error("Property location details are incomplete");
-    if (!formattedData.propertyType)
-      throw new Error("Property type is required");
+    console.log("Property registration data:", formattedData);
 
-    console.log("Formatted property data:", formattedData);
-
-    // Create contract method
-    const registerMethod = contractInstance.methods.registerProperty(
-      formattedData.propertyId,
-      formattedData.propertyName,
-      formattedData.location,
-      formattedData.propertyType
-    );
-
-    // Estimate gas with safety margin
-    const gasEstimate = await registerMethod.estimateGas({ from: account });
-    const gasLimit = Math.ceil(gasEstimate * 1.2); // 20% buffer
-    const gasPrice = await web3Instance.eth.getGasPrice();
-
-    console.log("Transaction parameters:", {
-      gasEstimate,
-      gasLimit,
-      gasPrice: web3Instance.utils.fromWei(gasPrice, "gwei") + " gwei",
-    });
-
-    // Update button state
-    submitButton.textContent = "Confirm in MetaMask...";
-
-    // Send transaction
-    const transaction = await registerMethod.send({
-      from: account,
-      gas: gasLimit,
-      gasPrice: gasPrice,
-    });
+    // Call the contract method
+    const transaction = await window.contractInstance.methods
+      .registerProperty(
+        formattedData.propertyId,
+        formattedData.propertyName,
+        formattedData.location,
+        formattedData.propertyType
+      )
+      .send({
+        from: account,
+        gas: 500000, // Set a reasonable gas limit
+      });
 
     console.log("Transaction successful:", transaction);
 
-    // Extract blockchain ID from events
-    let blockchainId = null;
-
-    if (transaction.events && transaction.events.PropertyRegistered) {
-      const event = transaction.events.PropertyRegistered;
-      blockchainId = event.returnValues.blockchainId || event.returnValues[0];
-      console.log("BlockchainId from event:", blockchainId);
-    }
-
-    // Fallback to transaction receipt logs if event parsing fails
-    if (!blockchainId && transaction.logs && transaction.logs.length > 0) {
-      const relevantLog = transaction.logs.find(
-        (log) =>
-          log.topics[0] ===
-          web3Instance.utils.sha3(
-            "PropertyRegistered(address,string,string,address)"
-          )
-      );
-
-      if (relevantLog) {
-        blockchainId = "0x" + relevantLog.topics[1].slice(26).toLowerCase();
-        console.log("BlockchainId from logs:", blockchainId);
-      }
-    }
-
-    // Final fallback
-    if (!blockchainId) {
-      blockchainId = transaction.events.PropertyRegistered.address;
-      console.log("Using contract address as blockchainId:", blockchainId);
-    }
-
-    if (!blockchainId) {
-      throw new Error("Failed to extract blockchain ID from transaction");
-    }
-
-    // Verify the registration
-    try {
-      const propertyDetails = await contractInstance.methods
-        .getProperty(blockchainId)
-        .call();
-      console.log("Property verification successful:", propertyDetails);
-    } catch (error) {
-      console.warn("Property verification warning:", error);
-      // Continue despite verification error as the transaction was successful
-    }
+    // Get the blockchainId from the event
+    const blockchainId =
+      transaction.events.PropertyRegistered.returnValues.blockchainId;
 
     return {
       success: true,
@@ -1486,7 +1430,10 @@ async function registerPropertyOnBlockchain(propertyData) {
     };
   } catch (error) {
     console.error("Blockchain registration error:", error);
-    throw new Error(error.message || "Transaction failed");
+    return {
+      success: false,
+      error: error.message || "Transaction failed",
+    };
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "Continue";
@@ -1782,7 +1729,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeForm().catch((error) => {
     console.error("Form initialization failed:", error);
   });
-  // debugWeb3Setup().then(console.log);
 });
 
 export { checkAuthentication, initializeForm, registerPropertyOnBlockchain };

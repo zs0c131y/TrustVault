@@ -1,5 +1,39 @@
 // Contract ABIs
-export const PROPERTY_REGISTRY_ABI = [
+const PROPERTY_REGISTRY_ABI = [
+  {
+    inputs: [
+      {
+        internalType: "string",
+        name: "_propertyId",
+        type: "string",
+      },
+      {
+        internalType: "string",
+        name: "_propertyName",
+        type: "string",
+      },
+      {
+        internalType: "string",
+        name: "_location",
+        type: "string",
+      },
+      {
+        internalType: "string",
+        name: "_propertyType",
+        type: "string",
+      },
+    ],
+    name: "registerProperty",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
   {
     inputs: [
       {
@@ -107,6 +141,131 @@ export const PROPERTY_REGISTRY_ABI = [
     ],
     stateMutability: "view",
     type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "blockchainId",
+        type: "address",
+      },
+    ],
+    name: "verifyProperty",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "blockchainId",
+        type: "address",
+      },
+      {
+        internalType: "address",
+        name: "newOwner",
+        type: "address",
+      },
+    ],
+    name: "transferOwnership",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "string",
+        name: "",
+        type: "string",
+      },
+    ],
+    name: "propertyIdToAddress",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "blockchainId",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "string",
+        name: "propertyId",
+        type: "string",
+      },
+      {
+        indexed: false,
+        internalType: "string",
+        name: "propertyName",
+        type: "string",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "owner",
+        type: "address",
+      },
+    ],
+    name: "PropertyRegistered",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "blockchainId",
+        type: "address",
+      },
+    ],
+    name: "PropertyVerified",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "blockchainId",
+        type: "address",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "previousOwner",
+        type: "address",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "newOwner",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "transferDate",
+        type: "uint256",
+      },
+    ],
+    name: "OwnershipTransferred",
+    type: "event",
   },
 ];
 
@@ -384,6 +543,7 @@ export {
   getGasPrice,
   executeContractMethod,
   DOCUMENT_VERIFICATION_ABI,
+  PROPERTY_REGISTRY_ABI,
   CONTRACT_ADDRESSES,
   NETWORKS,
 };
