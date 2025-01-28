@@ -1542,6 +1542,158 @@ app.post("/api/appointments", enhancedVerifyToken, async (req, res) => {
   }
 });
 
+// Document Verification Routes
+app.post(
+  "/api/request-verification",
+  enhancedVerifyToken,
+  upload.single("document"),
+  async (req, res) => {
+    try {
+      const db = client.db(dbName);
+      const verificationRequests = db.collection("verificationRequests");
+
+      // Parse personal information
+      let personalInfo;
+      try {
+        personalInfo = JSON.parse(req.body.personalInfo);
+      } catch (error) {
+        return res.status(400).json({
+          status: "error",
+          message: "Invalid personal information format",
+        });
+      }
+
+      // Get the uploaded file details
+      const document = req.file;
+      if (!document) {
+        return res.status(400).json({
+          status: "error",
+          message: "No document uploaded",
+        });
+      }
+
+      // Create verification request record
+      const verificationRequest = {
+        requestId: req.body.requestId || `VR${Date.now()}`,
+        userId: req.user.email,
+        personalInfo,
+        documentInfo: {
+          originalName: document.originalname,
+          filename: document.filename,
+          mimetype: document.mimetype,
+          size: document.size,
+          path: document.path,
+        },
+        status: "pending",
+        submissionDate: new Date(),
+        lastUpdated: new Date(),
+        verificationSteps: [
+          {
+            step: "document_submitted",
+            status: "completed",
+            timestamp: new Date(),
+          },
+          {
+            step: "initial_verification",
+            status: "pending",
+            timestamp: null,
+          },
+          {
+            step: "government_verification",
+            status: "pending",
+            timestamp: null,
+          },
+          {
+            step: "final_approval",
+            status: "pending",
+            timestamp: null,
+          },
+        ],
+      };
+
+      // Insert the verification request
+      const result = await verificationRequests.insertOne(verificationRequest);
+
+      // Create audit log entry
+      await db.collection("auditLog").insertOne({
+        action: "VERIFICATION_REQUEST_SUBMITTED",
+        userId: req.user.email,
+        requestId: verificationRequest.requestId,
+        documentType: personalInfo.documentType,
+        timestamp: new Date(),
+        ipAddress: req.ip,
+      });
+
+      // Return success response
+      res.status(201).json({
+        status: "success",
+        message: "Verification request submitted successfully",
+        requestId: verificationRequest.requestId,
+        trackingUrl: `/track-verification/${verificationRequest.requestId}`,
+      });
+    } catch (error) {
+      console.error("Verification request error:", error);
+      res.status(500).json({
+        status: "error",
+        message: "Failed to submit verification request",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    }
+  }
+);
+
+// Get verification status endpoint
+app.get(
+  "/api/verification-status/:requestId",
+  enhancedVerifyToken,
+  async (req, res) => {
+    try {
+      const { requestId } = req.params;
+      const verificationRequests = client
+        .db(dbName)
+        .collection("verificationRequests");
+
+      const request = await verificationRequests.findOne({ requestId });
+
+      if (!request) {
+        return res.status(404).json({
+          status: "error",
+          message: "Verification request not found",
+        });
+      }
+
+      // Check if user is authorized to view this request
+      if (request.userId !== req.user.email) {
+        return res.status(403).json({
+          status: "error",
+          message: "Not authorized to view this verification request",
+        });
+      }
+
+      res.json({
+        status: "success",
+        data: {
+          requestId: request.requestId,
+          status: request.status,
+          documentType: request.personalInfo.documentType,
+          submissionDate: request.submissionDate,
+          lastUpdated: request.lastUpdated,
+          verificationSteps: request.verificationSteps,
+        },
+      });
+    } catch (error) {
+      console.error("Get verification status error:", error);
+      res.status(500).json({
+        status: "error",
+        message: "Failed to fetch verification status",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    }
+  }
+);
+
 // Error Handling Middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
