@@ -172,19 +172,11 @@ class BlockchainManager {
   async getPropertyDetailsByTxHash(txHash) {
     try {
       await this.ensureInitialized();
-
       console.log("Starting property verification for hash:", txHash);
 
-      // First verify the transaction hash format
-      if (!this.web3.utils.isHexStrict(txHash)) {
-        throw new Error("Invalid transaction hash format");
-      }
-
-      // Search in MongoDB using the API
+      // First get response from our API
       const response = await fetch(`/api/property/search-by-hash/${txHash}`);
       const responseData = await response.json();
-
-      console.log("Full API Response:", responseData);
 
       if (!response.ok || !responseData.success) {
         throw new Error(
@@ -192,77 +184,77 @@ class BlockchainManager {
         );
       }
 
+      // Find the transaction in the history that matches our hash
+      const matchingTransaction = responseData.data.transactions?.find(
+        (tx) => tx.hash === txHash
+      );
+      console.log("Matching transaction from API:", matchingTransaction);
+
+      // Get Web3 transaction data
+      const web3Transaction = await this.web3.eth.getTransaction(txHash);
+      const web3Receipt = await this.web3.eth.getTransactionReceipt(txHash);
+      console.log("Web3 Transaction:", web3Transaction);
+      console.log("Web3 Receipt:", web3Receipt);
+
+      if (!web3Transaction || !web3Receipt) {
+        throw new Error("Transaction not found on blockchain");
+      }
+
+      const block = await this.web3.eth.getBlock(web3Receipt.blockNumber);
+      console.log("Block data:", block);
+
       const currentBlockchainId = responseData.data.currentBlockchainId;
       if (!currentBlockchainId) {
         throw new Error("Current blockchain ID not found");
       }
 
-      // Get current property data from blockchain
-      let blockchainData = null;
-      try {
-        if (!this.contractInstance.methods) {
-          throw new Error("Contract methods not available");
-        }
-        blockchainData = await this.contractInstance.methods
-          .properties(currentBlockchainId)
-          .call();
-      } catch (err) {
-        console.error("Error fetching blockchain data:", err);
-        throw err;
-      }
+      // Get property data from blockchain
+      const blockchainData = await this.contractInstance.methods
+        .properties(currentBlockchainId)
+        .call();
 
-      // Find transaction data in either transactions or blockchainIds arrays
-      let txData = {
-        transactionHash: txHash,
-        value: "0",
-        status: "Success",
+      // Helper function to safely convert BigInt to string
+      const toBigIntString = (value) => {
+        if (value === null || value === undefined) return null;
+        return value.toString();
       };
 
-      // First check transactions array
-      const foundInTransactions = responseData.data.transactions?.find(
-        (tx) => tx.hash === txHash
-      );
+      // Combine data from multiple sources, prioritizing Web3 data
+      const txData = {
+        transactionHash: txHash,
+        blockNumber:
+          toBigIntString(web3Receipt.blockNumber) ||
+          toBigIntString(web3Transaction.blockNumber) ||
+          matchingTransaction?.blockNumber,
+        timestamp: block.timestamp ? Number(block.timestamp) * 1000 : null,
+        from:
+          web3Transaction.from || web3Receipt.from || matchingTransaction?.from,
+        to: web3Transaction.to || web3Receipt.to || matchingTransaction?.to,
+        gasUsed:
+          toBigIntString(web3Receipt.gasUsed) || matchingTransaction?.gasUsed,
+        value: this.web3.utils.fromWei(
+          toBigIntString(web3Transaction.value) || "0",
+          "ether"
+        ),
+        status: web3Receipt.status ? "Success" : "Failed",
+      };
 
-      // Then check blockchainIds array
-      const foundInBlockchainIds = responseData.data.blockchainIds?.find(
-        (entry) => entry.txHash === txHash
-      );
-
-      // Use whichever source has the data
-      const txDetails = foundInTransactions || foundInBlockchainIds;
-
-      if (txDetails) {
-        // Extract the transaction details, using the appropriate field names
-        txData = {
-          ...txData,
-          blockNumber: txDetails.blockNumber || txDetails.block,
-          timestamp: txDetails.timestamp || txDetails.time,
-          from: txDetails.from || txDetails.sender,
-          to:
-            txDetails.to ||
-            txDetails.receiver ||
-            CONTRACT_ADDRESSES.PropertyRegistry,
-          gasUsed: txDetails.gasUsed || txDetails.gas,
-          gasPrice: txDetails.gasPrice,
-          value: txDetails.value || "0",
-        };
-      }
-
-      console.log("Extracted TX Data:", txData);
+      // Log the final assembled data
+      console.log("Assembled transaction data:", txData);
+      console.log("API response data:", responseData.data);
 
       const result = {
         success: true,
         data: {
           ...blockchainData,
+          ...txData,
           blockchainId: currentBlockchainId,
           originalBlockchainId: responseData.data.blockchainIds?.[0]?.id,
-          ...txData,
           blockchainHistory: responseData.data.blockchainIds || [],
           transactionHistory: responseData.data.transactions || [],
         },
       };
 
-      console.log("Final Result:", result);
       return result;
     } catch (error) {
       console.error("Error in getPropertyDetailsByTxHash:", error);
@@ -385,11 +377,18 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
 
   // Transaction Tab Content
   const transactionTab = document.getElementById("transactionTab");
+  const timestamp = transactionData.timestamp
+    ? new Date(Number(transactionData.timestamp)).toLocaleString()
+    : "N/A";
+
+  // Ensure we have string values and replace undefined/null with N/A
+  const formatValue = (value) => value?.toString() || "N/A";
+
   transactionTab.innerHTML = `
     <div class="data-item">
       <div class="data-label">Transaction Hash</div>
       <div class="data-value">
-        ${transactionData.transactionHash || "N/A"}
+        ${formatValue(transactionData.transactionHash)}
         ${
           transactionData.transactionHash
             ? `<button class="copy-button" onclick="navigator.clipboard.writeText('${transactionData.transactionHash}')">Copy</button>`
@@ -399,24 +398,20 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
     </div>
     <div class="data-item">
       <div class="data-label">Status</div>
-      <div class="data-value">${transactionData.status || "N/A"}</div>
+      <div class="data-value">${formatValue(transactionData.status)}</div>
     </div>
     <div class="data-item">
       <div class="data-label">Block Number</div>
-      <div class="data-value">${transactionData.blockNumber || "N/A"}</div>
+      <div class="data-value">${formatValue(transactionData.blockNumber)}</div>
     </div>
     <div class="data-item">
       <div class="data-label">Timestamp</div>
-      <div class="data-value">${
-        transactionData.timestamp
-          ? new Date(transactionData.timestamp).toLocaleString()
-          : "N/A"
-      }</div>
+      <div class="data-value">${timestamp}</div>
     </div>
     <div class="data-item">
       <div class="data-label">From Address</div>
       <div class="data-value">
-        ${transactionData.from || "N/A"}
+        ${formatValue(transactionData.from)}
         ${
           transactionData.from
             ? `<button class="copy-button" onclick="navigator.clipboard.writeText('${transactionData.from}')">Copy</button>`
@@ -427,7 +422,7 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
     <div class="data-item">
       <div class="data-label">To Address (Contract)</div>
       <div class="data-value">
-        ${transactionData.to || "N/A"}
+        ${formatValue(transactionData.to)}
         ${
           transactionData.to
             ? `<button class="copy-button" onclick="navigator.clipboard.writeText('${transactionData.to}')">Copy</button>`
@@ -438,13 +433,17 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
     <div class="data-item">
       <div class="data-label">Gas Used</div>
       <div class="data-value">${
-        transactionData.gasUsed ? transactionData.gasUsed : "N/A"
+        transactionData.gasUsed
+          ? `${formatValue(transactionData.gasUsed)} wei`
+          : "N/A"
       }</div>
     </div>
     <div class="data-item">
       <div class="data-label">Value</div>
       <div class="data-value">${
-        transactionData.value ? `${transactionData.value} ETH` : "0 ETH"
+        transactionData.value
+          ? `${formatValue(transactionData.value)} ETH`
+          : "0 ETH"
       }</div>
     </div>
   `;
@@ -523,43 +522,17 @@ async function handleVerification() {
 
   try {
     await blockchainManager.initialize();
-
     let result;
-    let transactionData = {};
 
     if (searchValue.startsWith("0x")) {
       if (searchValue.length === 66) {
         result = await blockchainManager.getPropertyDetailsByTxHash(
           searchValue
         );
-        if (result.success && result.data) {
-          transactionData = {
-            transactionHash: searchValue,
-            blockNumber: result.data.blockNumber,
-            timestamp: result.data.timestamp,
-            from: result.data.from,
-            to: result.data.to,
-            gasUsed: result.data.gasUsed,
-            value: result.data.value,
-            status: "Success",
-          };
-        }
       } else if (searchValue.length === 42) {
         result = await blockchainManager.getPropertyDetailsByBlockchainId(
           searchValue
         );
-        if (result.success && result.data) {
-          transactionData = {
-            transactionHash: result.data.transactionHash,
-            blockNumber: result.data.blockNumber,
-            timestamp: result.data.timestamp,
-            from: result.data.from,
-            to: result.data.to,
-            gasUsed: result.data.gasUsed,
-            value: result.data.value,
-            status: "Success",
-          };
-        }
       } else {
         throw new Error("Invalid input length");
       }
@@ -571,6 +544,17 @@ async function handleVerification() {
       resultContainer.innerHTML = createVerifiedProperty(result.data);
 
       if (result.data) {
+        const transactionData = {
+          transactionHash: result.data.transactionHash,
+          blockNumber: result.data.blockNumber,
+          timestamp: result.data.timestamp,
+          from: result.data.from,
+          to: result.data.to,
+          gasUsed: result.data.gasUsed,
+          value: result.data.value,
+          status: result.data.status,
+        };
+
         displayBlockchainData(
           transactionData.transactionHash,
           result.data,
