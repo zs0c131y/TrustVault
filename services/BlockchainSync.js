@@ -1,6 +1,7 @@
 const { Web3 } = require("web3");
 const fs = require("fs");
 const path = require("path");
+const Logger = require("../utils/logger");
 
 class BlockchainSync {
   constructor(mongoClient, dbName) {
@@ -16,7 +17,7 @@ class BlockchainSync {
       const contractsPath = path.join(projectRoot, "public/contracts");
 
       if (!fs.existsSync(contractsPath)) {
-        console.error("Looking for contracts at:", contractsPath);
+        Logger.error("Looking for contracts at:", contractsPath);
         throw new Error(
           "Contracts directory not found. Please run 'npx hardhat compile' and 'npm run deploy' first"
         );
@@ -33,7 +34,7 @@ class BlockchainSync {
         !fs.existsSync(propertyRegistryPath) ||
         !fs.existsSync(addressesPath)
       ) {
-        console.error("Looking for files at:", {
+        Logger.error("Looking for files at:", {
           propertyRegistryPath,
           addressesPath,
         });
@@ -61,12 +62,12 @@ class BlockchainSync {
         propertyContractAddress
       );
 
-      console.log("BlockchainSync initialized successfully");
-      console.log("PropertyRegistry Address:", propertyContractAddress);
+      Logger.success("BlockchainSync initialized successfully");
+      Logger.info("PropertyRegistry Address:", propertyContractAddress);
     } catch (error) {
-      console.error("Failed to initialize BlockchainSync:", error.message);
+      Logger.error("Failed to initialize BlockchainSync:", error.message);
       if (error.code === "ENOENT") {
-        console.error("File not found error. Current directory:", __dirname);
+        Logger.error("File not found error. Current directory:", __dirname);
       }
       throw error;
     }
@@ -90,13 +91,13 @@ class BlockchainSync {
       }
       return null;
     } catch (error) {
-      console.error("Error fetching wallet address:", error);
+      Logger.error("Error fetching wallet address:", error);
       return null;
     }
   }
 
   async syncPropertyToMongoDB(propertyData, txHash) {
-    console.log("🔍 BLOCKCHAIN SYNC: Starting property sync with data:", {
+    Logger.info("🔍 BLOCKCHAIN SYNC: Starting property sync with data:", {
       propertyId: propertyData.propertyId,
       blockchainId: propertyData.blockchainId,
       locality: propertyData.locality,
@@ -110,7 +111,7 @@ class BlockchainSync {
         !propertyData.locality ||
         !propertyData.blockchainId
       ) {
-        console.error("🚨 Missing required fields:", propertyData);
+        Logger.error("🚨 Missing required fields:", propertyData);
         throw new Error("Locality and blockchainId are required");
       }
 
@@ -121,14 +122,14 @@ class BlockchainSync {
 
       // Validate blockchainId format
       if (!this.web3.utils.isAddress(propertyData.blockchainId)) {
-        console.error(
+        Logger.error(
           "🚨 Invalid blockchain ID format:",
           propertyData.blockchainId
         );
         throw new Error("Invalid blockchain ID format");
       }
 
-      console.log("🔍 BLOCKCHAIN SYNC: Input validation passed");
+      Logger.success("🔍 BLOCKCHAIN SYNC: Input validation passed");
 
       // Validate transaction hash
       if (!txHash || typeof txHash !== "string") {
@@ -141,7 +142,7 @@ class BlockchainSync {
         throw new Error("Transaction receipt not found");
       }
 
-      console.log("🔍 BLOCKCHAIN SYNC: Transaction receipt found:", {
+      Logger.info("🔍 BLOCKCHAIN SYNC: Transaction receipt found:", {
         from: txReceipt.from,
         to: txReceipt.to,
         blockNumber: txReceipt.blockNumber,
@@ -206,7 +207,7 @@ class BlockchainSync {
         ],
       };
 
-      console.log("🔍 BLOCKCHAIN SYNC: Upserting property doc:", {
+      Logger.info("🔍 BLOCKCHAIN SYNC: Upserting property doc:", {
         propertyId: propertyDoc.propertyId,
         currentBlockchainId: propertyDoc.currentBlockchainId,
         locality: propertyDoc.locality,
@@ -233,7 +234,7 @@ class BlockchainSync {
       const verifyDoc = await db
         .collection("blockchainTxns")
         .findOne({ propertyId: propertyData.propertyId });
-      console.log("🔍 BLOCKCHAIN SYNC: Verification of upserted doc:", {
+      Logger.info("🔍 BLOCKCHAIN SYNC: Verification of upserted doc:", {
         propertyId: verifyDoc.propertyId,
         currentBlockchainId: verifyDoc.currentBlockchainId,
         blockchainIds: verifyDoc.blockchainIds,
@@ -242,8 +243,8 @@ class BlockchainSync {
 
       return propertyDoc;
     } catch (error) {
-      console.error("🚨 Error in syncPropertyToMongoDB:", error);
-      console.error("🚨 Error details:", {
+      Logger.error("🚨 Error in syncPropertyToMongoDB:", error);
+      Logger.error("🚨 Error details:", {
         message: error.message,
         stack: error.stack,
         propertyData: JSON.stringify(propertyData, null, 2),
@@ -255,7 +256,7 @@ class BlockchainSync {
 
   async restoreBlockchainState() {
     try {
-      console.log("Starting blockchain state restoration...");
+      Logger.info("Starting blockchain state restoration...");
       const db = this.mongoClient.db(this.dbName);
       const properties = await db
         .collection("blockchainTxns")
@@ -264,11 +265,11 @@ class BlockchainSync {
       const accounts = await this.web3.eth.getAccounts();
       const deployer = accounts[0];
 
-      console.log(`Found ${properties.length} properties to restore`);
+      Logger.info(`Found ${properties.length} properties to restore`);
 
       for (const property of properties) {
         try {
-          console.log(`Processing property ${property.propertyId}`);
+          Logger.info(`Processing property ${property.propertyId}`);
 
           // Generate new blockchain ID
           const newBlockchainId = this.generateDeterministicId(property);
@@ -278,7 +279,7 @@ class BlockchainSync {
           try {
             await this.contract.methods.getProperty(newBlockchainId).call();
             propertyExists = true;
-            console.log(
+            Logger.info(
               `Property ${property.propertyId} already exists on chain`
             );
           } catch (e) {
@@ -286,7 +287,7 @@ class BlockchainSync {
           }
 
           if (!propertyExists) {
-            console.log(`Registering property ${property.propertyId}`);
+            Logger.info(`Registering property ${property.propertyId}`);
             const registerTx = await this.contract.methods
               .registerProperty(
                 property.propertyId,
@@ -324,7 +325,7 @@ class BlockchainSync {
               }
             );
 
-            console.log(
+            Logger.success(
               `Property registered successfully. Transaction hash: ${registerTx.transactionHash}`
             );
           }
@@ -346,22 +347,22 @@ class BlockchainSync {
                 deployer
               );
             } else {
-              console.log(
+              Logger.warn(
                 `No valid wallet address found for owner: ${property.owner}`
               );
             }
           }
         } catch (error) {
-          console.error(
+          Logger.error(
             `Error processing property ${property.propertyId}:`,
             error
           );
         }
       }
 
-      console.log("Blockchain state restoration complete");
+      Logger.info("Blockchain state restoration complete");
     } catch (error) {
-      console.error("Error in blockchain state restoration:", error);
+      Logger.error("Error in blockchain state restoration:", error);
       throw error;
     }
   }
@@ -378,10 +379,10 @@ class BlockchainSync {
             from: deployer,
             gas: 200000,
           });
-        console.log(`Ownership transferred to ${newOwner}`);
+        Logger.info(`Ownership transferred to ${newOwner}`);
       }
     } catch (error) {
-      console.error("Error in ownership transfer:", error);
+      Logger.error("Error in ownership transfer:", error);
       throw error;
     }
   }

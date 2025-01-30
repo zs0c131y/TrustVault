@@ -1,9 +1,10 @@
 const hre = require("hardhat");
 const fs = require("fs");
 const path = require("path");
+const Logger = require("../utils/logger");
 
 async function main() {
-  console.log("Starting deployment...");
+  Logger.info("Starting deployment...");
 
   // Ensure the contract artifacts directory exists
   const artifactsDir = path.join(__dirname, "../public/contracts");
@@ -18,7 +19,7 @@ async function main() {
   const propertyRegistry = await PropertyRegistry.deploy();
   await propertyRegistry.waitForDeployment();
   const propertyAddress = await propertyRegistry.getAddress();
-  console.log("PropertyRegistry deployed to:", propertyAddress);
+  Logger.info("PropertyRegistry deployed to:", propertyAddress);
 
   // Deploy DocumentVerification contract
   const DocumentVerification = await hre.ethers.getContractFactory(
@@ -27,7 +28,7 @@ async function main() {
   const documentVerification = await DocumentVerification.deploy();
   await documentVerification.waitForDeployment();
   const docVerificationAddress = await documentVerification.getAddress();
-  console.log("DocumentVerification deployed to:", docVerificationAddress);
+  Logger.info("DocumentVerification deployed to:", docVerificationAddress);
 
   // Save the contract addresses
   const addressFile = path.join(artifactsDir, "contract-addresses.json");
@@ -42,7 +43,7 @@ async function main() {
       2
     )
   );
-  console.log("Contract addresses saved to:", addressFile);
+  Logger.success("Contract addresses saved to:", addressFile);
 
   // Copy the contract artifacts
   const contracts = ["PropertyRegistry", "DocumentVerification"];
@@ -58,13 +59,13 @@ async function main() {
 
     fs.mkdirSync(path.dirname(artifactDest), { recursive: true });
     fs.copyFileSync(artifactSource, artifactDest);
-    console.log(`${contract} artifact copied to:`, artifactDest);
+    Logger.info(`${contract} artifact copied to:`, artifactDest);
   }
 
   // Verify contracts if not on localhost
   const network = hre.network.name;
   if (network !== "localhost" && network !== "hardhat") {
-    console.log("\nVerifying contracts on Etherscan...");
+    Logger.info("\nVerifying contracts on Etherscan...");
 
     try {
       await hre.run("verify:verify", {
@@ -77,7 +78,7 @@ async function main() {
         contract: "contracts/DocumentVerification.sol:DocumentVerification",
       });
     } catch (error) {
-      console.log("Error verifying contracts:", error);
+      Logger.error("Error verifying contracts:", error);
     }
   }
 }
@@ -85,6 +86,6 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch((error) => {
-    console.error(error);
+    Logger.error(error);
     process.exit(1);
   });

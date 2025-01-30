@@ -118,6 +118,16 @@ class BlockchainManager {
         (entry) => entry.id === blockchainId
       );
 
+      // Helper function to convert timestamp to milliseconds
+      const normalizeTimestamp = (timestamp) => {
+        if (!timestamp) return null;
+        // Check if timestamp needs conversion (if it's in seconds)
+        const timestampNum = Number(timestamp);
+        return timestampNum < 1000000000000
+          ? timestampNum * 1000
+          : timestampNum;
+      };
+
       // Combine transaction data, prioritizing the transactions array
       let txData = {
         transactionHash:
@@ -125,8 +135,9 @@ class BlockchainManager {
         blockNumber:
           latestTransaction?.blockNumber ||
           relevantBlockchainEntry?.blockNumber,
-        timestamp:
-          latestTransaction?.timestamp || relevantBlockchainEntry?.timestamp,
+        timestamp: normalizeTimestamp(
+          latestTransaction?.timestamp || relevantBlockchainEntry?.timestamp
+        ),
         from: latestTransaction?.from || relevantBlockchainEntry?.from,
         to: latestTransaction?.to || relevantBlockchainEntry?.to,
         gasUsed: latestTransaction?.gasUsed || relevantBlockchainEntry?.gasUsed,
@@ -135,7 +146,7 @@ class BlockchainManager {
         status: "Success",
       };
 
-      // If we still don't have a transaction hash, try to get it from the transaction receipt
+      // If we have a transaction hash, get additional data from the blockchain
       if (txData.transactionHash) {
         try {
           const receipt = await this.web3.eth.getTransactionReceipt(
@@ -143,6 +154,12 @@ class BlockchainManager {
           );
           if (receipt) {
             txData.gasUsed = receipt.gasUsed;
+
+            // Get block data to ensure consistent timestamp handling
+            const block = await this.web3.eth.getBlock(receipt.blockNumber);
+            if (block && block.timestamp) {
+              txData.timestamp = Number(block.timestamp) * 1000;
+            }
           }
         } catch (err) {
           console.error("Error fetching transaction receipt:", err);

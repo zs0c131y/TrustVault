@@ -1,3 +1,9 @@
+import { isAuthenticated, getToken, getAuthHeaders } from "./auth.js";
+
+// Max sizes
+const maxFileSize = 20 * 1024 * 1024; // 20MB in bytes
+const maxTotalSize = 50 * 1024 * 1024; // 50MB in bytes
+
 document.addEventListener("DOMContentLoaded", async () => {
   const form = document.getElementById("personal-info-form");
   const documentForm = document.getElementById("document-info-form");
@@ -8,48 +14,70 @@ document.addEventListener("DOMContentLoaded", async () => {
   const uploadInput = document.getElementById("upload-document");
   const loadingOverlay = document.getElementById("loading-overlay");
   const emailInput = document.getElementById("email");
+  const idNumberInput = document.getElementById("aadhaar-pan");
+  const allowedExtensions = [".pdf", ".png", ".jpg", ".jpeg"];
+  const allowedMimeTypes = ["application/pdf", "image/png", "image/jpeg"];
 
-  // Check authentication status
-  const checkAuth = async () => {
+  // Initialize form with auth check
+  // Initialize form with auth check
+  const initializeForm = async () => {
     try {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        console.log("No token found");
-        return false;
-      }
+      const authenticated = await isAuthenticated();
 
-      const response = await fetch("/checkAuth", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.log("Auth check failed");
-        return false;
-      }
-
-      const data = await response.json();
-      return data.authenticated;
-    } catch (error) {
-      console.error("Auth check error:", error);
-      return false;
-    }
-  };
-
-  // Fetch and autofill user data from JWT
-  const autoFillUserData = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        console.log("No token for user data fetch");
+      if (!authenticated) {
+        console.log("User not authenticated");
+        window.location.href = "./login.html";
         return;
       }
 
+      await autoFillUserData();
+    } catch (error) {
+      console.error("Initialization error:", error);
+      window.location.href = "./login.html";
+    }
+  };
+
+  // ID number validation and formatting
+  const handleIdNumberInput = (value) => {
+    // Remove any spaces or special characters
+    value = value.replace(/[^a-zA-Z0-9]/g, "");
+
+    // Check if the input starts with a letter (PAN format)
+    if (/^[a-zA-Z]/.test(value)) {
+      value = value.toUpperCase();
+
+      // Enforce PAN format (5 letters + 4 numbers + 1 letter)
+      const panParts = value.match(/^([A-Z]{0,5})([0-9]{0,4})([A-Z]?)$/);
+      if (panParts) {
+        const [, letters, numbers, lastLetter] = panParts;
+        value = letters + (numbers || "") + (lastLetter || "");
+      }
+
+      // Restrict to 10 characters
+      if (value.length > 10) {
+        value = value.slice(0, 10);
+      }
+    } else {
+      // Aadhaar format (12 digits)
+      value = value.replace(/[^\d]/g, "");
+      if (value.length > 12) {
+        value = value.slice(0, 12);
+      }
+    }
+
+    return value;
+  };
+
+  // Add event listener for ID number input
+  idNumberInput?.addEventListener("input", (e) => {
+    e.target.value = handleIdNumberInput(e.target.value);
+  });
+
+  // Fetch and autofill user data
+  const autoFillUserData = async () => {
+    try {
       const response = await fetch("/getUserData", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
@@ -59,35 +87,34 @@ document.addEventListener("DOMContentLoaded", async () => {
       const userData = await response.json();
 
       // Autofill email and make it read-only
-      emailInput.value = userData.email;
-      emailInput.readOnly = true;
-      emailInput.classList.add("readonly-field");
+      if (emailInput) {
+        emailInput.value = userData.email;
+        emailInput.readOnly = true;
+        emailInput.classList.add("readonly-field"); // Add the CSS class
+
+        // Optional: Add a title attribute to show it's auto-filled
+        emailInput.title = "Auto-filled from your account";
+      }
 
       // If name is available, autofill name fields
       if (userData.name) {
         const names = userData.name.split(" ");
-        document.getElementById("first-name").value = names[0] || "";
-        document.getElementById("last-name").value =
-          names.slice(1).join(" ") || "";
+        const firstNameInput = document.getElementById("first-name");
+        const lastNameInput = document.getElementById("last-name");
+
+        if (firstNameInput) firstNameInput.value = names[0] || "";
+        if (lastNameInput) lastNameInput.value = names.slice(1).join(" ") || "";
       }
     } catch (error) {
       console.error("Error fetching user data:", error);
     }
   };
 
-  // Initialize form with auth check
-  const initializeForm = async () => {
-    const isAuthenticated = await checkAuth();
-
-    if (!isAuthenticated) {
-      console.log("User not authenticated");
-      if (confirm("Please log in to continue. Redirect to login page?")) {
-        window.location.href = "./login.html";
-      }
-      return;
-    }
-
-    await autoFillUserData();
+  // Function to format file size
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return bytes + " B";
+    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    else return (bytes / 1048576).toFixed(1) + " MB";
   };
 
   // Call initialize function
@@ -99,41 +126,47 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
 
   // Show/hide loading overlay
-  const toggleLoading = (show) => {
-    loadingOverlay.classList.toggle("hidden", !show);
-    continueButton.disabled = show;
+  const toggleLoading = (isLoading) => {
+    const loadingOverlay = document.getElementById("loading-overlay");
+    const continueButton = document.getElementById("continue-button");
+
+    if (loadingOverlay) {
+      loadingOverlay.classList.toggle("hidden", !isLoading);
+    }
+
+    if (continueButton) {
+      continueButton.disabled = isLoading;
+      continueButton.textContent = isLoading ? "Processing..." : "Continue";
+    }
   };
 
   // Validate file type using both extension and MIME type
   const validateFile = (file) => {
-    // Allowed file extensions and MIME types
-    const allowedExtensions = [".pdf"];
-    const allowedMimeTypes = ["application/pdf"];
+    const fileExtension = "." + file.name.toLowerCase().split(".").pop();
 
-    // Get file extension
-    const fileName = file.name.toLowerCase();
-    const fileExtension = "." + fileName.split(".").pop();
-
-    // Check extension
     if (!allowedExtensions.includes(fileExtension)) {
-      throw new Error("Please upload a PDF document");
+      throw new Error("Please upload a PDF, PNG, or JPG file");
     }
 
-    // Check MIME type
     if (!allowedMimeTypes.includes(file.type)) {
-      throw new Error("Invalid file type. Please upload a valid PDF document");
+      throw new Error(
+        "Invalid file type. Please upload a valid PDF, PNG, or JPG file"
+      );
     }
 
-    // Check file size (10MB limit)
-    if (file.size > 10 * 1024 * 1024) {
-      throw new Error("File size should not exceed 10MB");
+    if (file.size > maxFileSize) {
+      throw new Error(
+        `File ${file.name} is too large (${(file.size / (1024 * 1024)).toFixed(
+          2
+        )}MB). Maximum size is 20MB`
+      );
     }
 
     return true;
   };
 
   // Handle same address checkbox
-  sameAddressCheckbox.addEventListener("change", () => {
+  sameAddressCheckbox?.addEventListener("change", () => {
     if (sameAddressCheckbox.checked) {
       currentAddress.value = permanentAddress.value;
       currentAddress.disabled = true;
@@ -143,7 +176,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // Handle file upload
-  uploadInput.addEventListener("change", (e) => {
+  uploadInput?.addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (file) {
       try {
@@ -155,32 +188,116 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  const updateFileUploadUI = async (file, index) => {
+    const previewElement = document.getElementById(`file-preview-${index}`);
+    const infoElement = document.getElementById(`file-info-${index}`);
+    const labelElement = document.getElementById(`upload-label-${index}`);
+
+    // Update file info
+    infoElement.querySelector(".filename").textContent = file.name;
+    infoElement.querySelector(".filesize").textContent = ` (${formatFileSize(
+      file.size
+    )})`;
+    infoElement.classList.remove("hidden");
+
+    // Update label text
+    labelElement.querySelector("span").textContent = "📎 Change File";
+
+    // Handle preview
+    if (file.type.startsWith("image/")) {
+      // Image preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        previewElement.innerHTML = `
+          <img src="${e.target.result}" alt="Preview" class="file-preview-img" />
+        `;
+        previewElement.classList.remove("hidden");
+      };
+      reader.readAsDataURL(file);
+    } else if (file.type === "application/pdf") {
+      // PDF icon
+      previewElement.innerHTML = `
+        <div class="pdf-preview">
+          <svg class="pdf-icon" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5c0 .83-.67 1.5-1.5 1.5H7v2H5.5V9H8c.83 0 1.5.67 1.5 1.5v1zm10 0c0 .83-.67 1.5-1.5 1.5h-2.5V15h-2V9h4.5c.83 0 1.5.67 1.5 1.5v1zm-5 2h-2V9h2v4.5z"/>
+          </svg>
+          <span>PDF Document</span>
+        </div>
+      `;
+      previewElement.classList.remove("hidden");
+    }
+  };
+
+  // Function to clear file upload UI
+  const clearFileUploadUI = (index) => {
+    const previewElement = document.getElementById(`file-preview-${index}`);
+    const infoElement = document.getElementById(`file-info-${index}`);
+    const labelElement = document.getElementById(`upload-label-${index}`);
+    const inputElement = document.getElementById(
+      `upload-document${index === 1 ? "" : "-" + index}`
+    );
+
+    previewElement.innerHTML = "";
+    previewElement.classList.add("hidden");
+    infoElement.classList.add("hidden");
+    labelElement.querySelector(
+      "span"
+    ).textContent = `📎 Upload Document ${index}`;
+    inputElement.value = "";
+  };
+
+  // File upload event handlers
+  const setupFileUpload = (index) => {
+    const inputId = `upload-document${index === 1 ? "" : "-" + index}`;
+    const uploadInput = document.getElementById(inputId);
+
+    uploadInput?.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      const errorElement = document.getElementById("upload-error");
+
+      if (file) {
+        try {
+          validateFile(file);
+          errorElement.classList.add("hidden");
+          await updateFileUploadUI(file, index);
+        } catch (error) {
+          errorElement.textContent = error.message;
+          errorElement.classList.remove("hidden");
+          clearFileUploadUI(index);
+        }
+      }
+    });
+  };
+
+  // Set up file upload handlers
+  setupFileUpload(1);
+  setupFileUpload(2);
+
   // Form validation
   const validateForm = () => {
-    const firstName = document.getElementById("first-name").value;
-    const lastName = document.getElementById("last-name").value;
-    const email = emailInput.value;
-    const phone = document.getElementById("phone-number").value;
-    const idNumber = document.getElementById("aadhaar-pan").value;
-    const pAddress = permanentAddress.value;
-    const cAddress = currentAddress.value;
-    const documentType = document.getElementById("document-type").value;
-    const uploadedFile = uploadInput.files[0];
+    // Get form field values
+    const firstName = document.getElementById("first-name")?.value?.trim();
+    const lastName = document.getElementById("last-name")?.value?.trim();
+    const email = emailInput?.value?.trim();
+    const phone = document.getElementById("phone-number")?.value?.trim();
+    const idNumber = idNumberInput?.value?.trim();
+    const pAddress = permanentAddress?.value?.trim();
+    const cAddress = currentAddress?.value?.trim();
+    const documentType = document.getElementById("document-type")?.value;
+    const uploadedFile1 = document.getElementById("upload-document")?.files[0];
+    const uploadedFile2 =
+      document.getElementById("upload-document-2")?.files[0];
 
-    if (
-      !firstName ||
-      !lastName ||
-      !phone ||
-      !idNumber ||
-      !pAddress ||
-      !cAddress ||
-      !documentType ||
-      !uploadedFile
-    ) {
-      throw new Error(
-        "Please fill in all required fields and upload a document"
-      );
-    }
+    // Validate required fields
+    if (!firstName) throw new Error("First name is required");
+    if (!lastName) throw new Error("Last name is required");
+    if (!email) throw new Error("Email is required");
+    if (!phone) throw new Error("Phone number is required");
+    if (!idNumber) throw new Error("ID number is required");
+    if (!pAddress) throw new Error("Permanent address is required");
+    if (!cAddress) throw new Error("Current address is required");
+    if (!documentType) throw new Error("Document type is required");
+    if (!uploadedFile1) throw new Error("At least one document is required");
 
     // Validate phone number (10 digits)
     const phoneRegex = /^\d{10}$/;
@@ -188,15 +305,21 @@ document.addEventListener("DOMContentLoaded", async () => {
       throw new Error("Please enter a valid 10-digit phone number");
     }
 
-    // Validate ID number (Aadhaar: 12 digits, PAN: 10 alphanumeric)
-    const aadhaarRegex = /^\d{12}$/;
-    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
-    if (!aadhaarRegex.test(idNumber) && !panRegex.test(idNumber)) {
-      throw new Error(
-        "Please enter a valid Aadhaar (12 digits) or PAN (10 alphanumeric) number"
-      );
+    // Validate ID number
+    const isPAN = /^[A-Z]/.test(idNumber);
+    if (isPAN) {
+      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+      if (!panRegex.test(idNumber)) {
+        throw new Error("Please enter a valid PAN number (format: ABCDE1234F)");
+      }
+    } else {
+      const aadhaarRegex = /^\d{12}$/;
+      if (!aadhaarRegex.test(idNumber)) {
+        throw new Error("Please enter a valid 12-digit Aadhaar number");
+      }
     }
 
+    // Return validated form data
     return {
       firstName,
       lastName,
@@ -206,79 +329,117 @@ document.addEventListener("DOMContentLoaded", async () => {
       permanentAddress: pAddress,
       currentAddress: cAddress,
       documentType,
+      files: [uploadedFile1, uploadedFile2].filter(Boolean), // Filter out undefined/null files
     };
   };
 
   // Form submission handler
-  continueButton.addEventListener("click", async (e) => {
+  continueButton?.addEventListener("click", async (e) => {
     e.preventDefault();
 
-    // Check authentication before submission
-    const isAuthenticated = await checkAuth();
-    if (!isAuthenticated) {
-      if (
-        confirm("Your session has expired. Please log in again to continue.")
-      ) {
-        window.location.href = "./login.html";
-      }
-      return;
-    }
+    const errorElement = document.getElementById("upload-error");
+    if (errorElement) errorElement.classList.add("hidden"); // Reset error message
 
     try {
-      // Validate form and get form data
-      const formData = new FormData();
-      const personalInfo = validateForm();
-      const uploadedFile = uploadInput.files[0];
+      // Show loading state
+      toggleLoading(true);
 
-      // Validate file again
-      validateFile(uploadedFile);
+      // Validate form and get form data
+      const formFields = validateForm();
+
+      const formData = new FormData();
 
       // Generate request ID
       const requestId = generateRequestId();
-
-      // Append all data to FormData
       formData.append("requestId", requestId);
-      formData.append("document", uploadedFile);
+
+      // Create and append personal info
+      const personalInfo = {
+        firstName: formFields.firstName,
+        lastName: formFields.lastName,
+        email: formFields.email,
+        phone: formFields.phone,
+        idNumber: formFields.idNumber,
+        permanentAddress: formFields.permanentAddress,
+        currentAddress: formFields.currentAddress,
+        documentType: formFields.documentType,
+      };
+
       formData.append("personalInfo", JSON.stringify(personalInfo));
 
-      // Show loading spinner
-      toggleLoading(true);
+      // Append files with correct field names
+      if (formFields.files[0]) {
+        formData.append("document1", formFields.files[0]);
+        console.log("Appending document1:", formFields.files[0].name);
+      }
+      if (formFields.files[1]) {
+        formData.append("document2", formFields.files[1]);
+        console.log("Appending document2:", formFields.files[1].name);
+      }
 
-      // Submit the form data
+      // Debug FormData contents
+      console.log("FormData contents:");
+      for (let pair of formData.entries()) {
+        console.log(
+          pair[0] + ": " + (pair[1] instanceof File ? pair[1].name : pair[1])
+        );
+      }
+
+      // Get auth headers
+      const headers = {
+        Authorization: `Bearer ${getToken()}`,
+        "X-Device-ID": localStorage.getItem("deviceId") || "",
+        "X-Environment": "prod",
+      };
+
+      console.log("Submitting verification request...");
       const response = await fetch("/api/request-verification", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
+        headers: headers,
         body: formData,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Submission failed");
-      }
-
       const result = await response.json();
+      console.log("Server response:", result);
+
+      if (!response.ok) {
+        throw new Error(
+          result.message || `Submission failed (Status: ${response.status})`
+        );
+      }
 
       // Store the verification request ID
       localStorage.setItem("verificationRequestId", result.requestId);
-      localStorage.setItem("documentType", personalInfo.documentType);
+      localStorage.setItem("documentType", formFields.documentType);
 
-      // Redirect to view documents page
+      console.log("Request successful, redirecting...");
       window.location.href = "./viewdoc.html";
     } catch (error) {
       console.error("Submission error:", error);
-      alert(
-        error.message ||
-          "There was an error submitting your document. Please try again."
-      );
+      if (errorElement) {
+        errorElement.textContent = error.message;
+        errorElement.classList.remove("hidden");
+      } else {
+        alert(error.message);
+      }
     } finally {
       toggleLoading(false);
     }
   });
 
   // Back button functionality
-  document.getElementById("backButton").addEventListener("click", () => {
+  document.getElementById("backButton")?.addEventListener("click", () => {
     history.back();
+  });
+
+  // Add event listener for visibility change
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      isAuthenticated().then((auth) => {
+        if (!auth) {
+          window.location.href = "./login.html";
+        }
+      });
+    }
   });
 });

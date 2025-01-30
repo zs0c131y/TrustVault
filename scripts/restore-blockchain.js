@@ -3,6 +3,7 @@ const { MongoClient } = require("mongodb");
 const fs = require("fs");
 const path = require("path");
 const BlockchainSync = require("../services/BlockchainSync");
+const Logger = require("../utils/logger");
 
 async function restoreBlockchain() {
   let client;
@@ -16,14 +17,14 @@ async function restoreBlockchain() {
     const addressPath = path.join(contractsPath, "contract-addresses.json"); // Fixed filename
 
     if (!fs.existsSync(artifactPath)) {
-      console.error(`Artifact not found at: ${artifactPath}`);
+      Logger.error(`Artifact not found at: ${artifactPath}`);
       throw new Error(
         "Contract artifacts not found. Please run npm run compile && npm run deploy first"
       );
     }
 
     if (!fs.existsSync(addressPath)) {
-      console.error(`Addresses not found at: ${addressPath}`);
+      Logger.error(`Addresses not found at: ${addressPath}`);
       throw new Error(
         "Contract addresses file not found. Please run npm run compile && npm run deploy first"
       );
@@ -40,7 +41,7 @@ async function restoreBlockchain() {
       useUnifiedTopology: true,
     });
     await client.connect();
-    console.log("Connected to MongoDB successfully");
+    Logger.success("Connected to MongoDB successfully");
 
     // Initialize BlockchainSync with the MongoDB client
     const blockchainSync = new BlockchainSync(client, "trustvault");
@@ -48,9 +49,9 @@ async function restoreBlockchain() {
     // Perform restoration
     await blockchainSync.restoreBlockchainState();
 
-    console.log("Blockchain state restored successfully");
+    Logger.success("Blockchain state restored successfully");
   } catch (error) {
-    console.error("Error in restore script:", error);
+    Logger.error("Error in restore script:", error);
     process.exit(1);
   } finally {
     if (client) {

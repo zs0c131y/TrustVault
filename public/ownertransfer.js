@@ -1443,7 +1443,9 @@ async function prepareFormData(blockchainResult) {
 
   // Property information
   const propertyInfo = {
-    propertyId: blockchainResult.blockchainId,
+    propertyId: document.querySelector('input[placeholder="Property ID"]')
+      .value,
+    blockchainId: blockchainResult.blockchainId,
     plotNumber: document.querySelector(
       'input[placeholder="Plot / Flat Number"]'
     ).value,

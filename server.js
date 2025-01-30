@@ -1,3 +1,5 @@
+const process = require("process");
+process.noDeprecation = true;
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
@@ -13,6 +15,7 @@ const jwt = require("jsonwebtoken");
 const { body, validationResult } = require("express-validator");
 const fs = require("fs");
 const BlockchainSync = require("./services/BlockchainSync");
+const Logger = require("./utils/logger");
 
 // Module-level variables
 let db = null;
@@ -228,12 +231,12 @@ const upload = multer({
 // JWT Token Verification Middleware
 const enhancedVerifyToken = async (req, res, next) => {
   try {
-    console.log("Token verification started");
-    console.log("Incoming headers:", req.headers);
+    Logger.info("Token verification started");
+    // Logger.info("Incoming headers:", req.headers); // Header reports
 
     const authHeader = req.headers.authorization;
     if (!authHeader) {
-      console.log("No authorization header");
+      Logger.error("No authorization header");
       return res
         .status(401)
         .json({ error: "No authorization header provided" });
@@ -241,7 +244,7 @@ const enhancedVerifyToken = async (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
     if (!token) {
-      console.log("No token in authorization header");
+      Logger.error("No token in authorization header");
       return res
         .status(401)
         .json({ error: "No token provided in authorization header" });
@@ -250,9 +253,9 @@ const enhancedVerifyToken = async (req, res, next) => {
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log("Token verified for user:", decoded.email);
+      Logger.success("Token verified for user:", decoded.email);
     } catch (jwtError) {
-      console.log("JWT verification failed:", jwtError.message);
+      Logger.error("JWT verification failed:", jwtError.message);
       return res.status(401).json({
         error: "Invalid token",
         details:
@@ -265,7 +268,7 @@ const enhancedVerifyToken = async (req, res, next) => {
       .collection("invalidatedTokens")
       .findOne({ token });
     if (invalidated) {
-      console.log("Token has been invalidated");
+      Logger.info("Token has been invalidated");
       return res.status(401).json({ error: "Token has been invalidated" });
     }
 
@@ -291,7 +294,7 @@ const enhancedVerifyToken = async (req, res, next) => {
           lastActive: new Date(),
         };
         await db.collection("deviceSessions").insertOne(session);
-        console.log("Created new device session for:", deviceId);
+        Logger.info("Created new device session for:", deviceId);
       } else {
         // Update existing session with new token
         await db.collection("deviceSessions").updateOne(
@@ -303,14 +306,14 @@ const enhancedVerifyToken = async (req, res, next) => {
             },
           }
         );
-        console.log("Updated device session for:", deviceId);
+        Logger.info("Updated device session for:", deviceId);
       }
     }
 
     req.user = decoded;
     next();
   } catch (error) {
-    console.error("Token verification error:", error);
+    Logger.error("Token verification error:", error);
     res.status(401).json({
       error: "Authentication failed",
       details:
@@ -337,7 +340,7 @@ function serializeBlockchainData(data) {
 app.get("/api/property/search-by-hash/:hash", async (req, res) => {
   try {
     const { hash } = req.params;
-    console.log("Searching for property with transaction hash:", hash);
+    Logger.info("Searching for property with transaction hash:", hash);
 
     // Search in blockchainTxns collection for the hash in either arrays
     const property = await db.collection("blockchainTxns").findOne({
@@ -348,7 +351,7 @@ app.get("/api/property/search-by-hash/:hash", async (req, res) => {
     });
 
     if (!property) {
-      console.log("No property found with hash:", hash);
+      Logger.warn("No property found with hash:", hash);
       return res.status(404).json({
         success: false,
         error: "Property not found",
@@ -371,12 +374,12 @@ app.get("/api/property/search-by-hash/:hash", async (req, res) => {
         .properties(currentBlockchainId)
         .call();
 
-      console.log(
+      Logger.success(
         "Retrieved blockchain data for current ID:",
         currentBlockchainId
       );
     } catch (err) {
-      console.error("Error fetching blockchain data:", err);
+      Logger.error("Error fetching blockchain data:", err);
     }
 
     // Convert any BigInt values to strings in property transactions
@@ -400,7 +403,7 @@ app.get("/api/property/search-by-hash/:hash", async (req, res) => {
 
     return res.json(response);
   } catch (error) {
-    console.error("Error searching property by hash:", error);
+    Logger.error("Error searching property by hash:", error);
     return res.status(500).json({
       success: false,
       error: "Internal server error",
@@ -416,7 +419,7 @@ app.get(
   async (req, res) => {
     try {
       const { blockchainId } = req.params;
-      console.log("Searching for property with blockchain ID:", blockchainId);
+      Logger.info("Searching for property with blockchain ID:", blockchainId);
 
       // Search for the blockchain ID in either currentBlockchainId or blockchainIds array
       const property = await db.collection("blockchainTxns").findOne({
@@ -433,7 +436,7 @@ app.get(
       });
 
       if (!property) {
-        console.log("No property found with blockchain ID:", blockchainId);
+        Logger.warn("No property found with blockchain ID:", blockchainId);
         return res.status(404).json({
           success: false,
           error: "Property not found",
@@ -447,12 +450,12 @@ app.get(
           .properties(property.currentBlockchainId)
           .call();
 
-        console.log(
+        Logger.success(
           "Retrieved blockchain data for current ID:",
           property.currentBlockchainId
         );
       } catch (err) {
-        console.error("Error fetching blockchain data:", err);
+        Logger.error("Error fetching blockchain data:", err);
       }
 
       // Convert any BigInt values to strings in property transactions
@@ -476,7 +479,7 @@ app.get(
 
       return res.json(response);
     } catch (error) {
-      console.error("Error searching property by blockchain ID:", error);
+      Logger.error("Error searching property by blockchain ID:", error);
       return res.status(500).json({
         success: false,
         error: "Internal server error",
@@ -503,18 +506,40 @@ const sanitizeInput = (req, res, next) => {
 
 // Database connection
 async function connectToMongoDB() {
+  if (client) {
+    Logger.info("Reusing existing MongoDB connection");
+    return client;
+  }
+
   try {
     client = new MongoClient(process.env.MONGO_URI, {
       tls: true,
       tlsAllowInvalidCertificates: process.env.NODE_ENV === "development",
+      socketTimeoutMS: 30000,
+      connectTimeoutMS: 30000,
+      serverSelectionTimeoutMS: 5000,
+      maxPoolSize: 50,
     });
+
     await client.connect();
-    console.log("Connected to MongoDB successfully");
     db = client.db(dbName);
+
+    // Test the connection
+    await client.db(dbName).command({ ping: 1 });
+
+    // Set up connection monitoring
+    client.on("connectionPoolCreated", (event) => {
+      Logger.info("MongoDB connection pool created");
+    });
+
+    client.on("connectionPoolClosed", (event) => {
+      Logger.warn("MongoDB connection pool closed");
+    });
+
     return client;
   } catch (error) {
-    console.error("MongoDB connection error:", error);
-    process.exit(1);
+    Logger.error("MongoDB connection error:", error);
+    throw error;
   }
 }
 
@@ -525,19 +550,18 @@ app.use((req, res, next) => {
 });
 
 // Debug route
-// Add this before your routes
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
-  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  // console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  // console.log("Headers:", JSON.stringify(req.headers, null, 2));
   if (process.env.NODE_ENV === "development") {
-    console.log("Body:", JSON.stringify(req.body, null, 2));
+    // console.log("Body:", JSON.stringify(req.body, null, 2));
   }
   next();
 });
 
 // Add error logging middleware
 app.use((err, req, res, next) => {
-  console.error("Error occurred:", {
+  Logger.error("Error occurred:", {
     timestamp: new Date().toISOString(),
     method: req.method,
     url: req.url,
@@ -572,7 +596,7 @@ app.post("/", async (req, res) => {
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    console.error("RPC Error:", error);
+    Logger.error("RPC Error:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -597,7 +621,7 @@ app.post("/login", async (req, res) => {
       token,
     });
   } catch (error) {
-    console.error("Login error:", error);
+    Logger.error("Login error:", error);
     res.status(500).json({ error: "Authentication failed" });
   }
 });
@@ -612,7 +636,7 @@ app.post("/logout", enhancedVerifyToken, async (req, res) => {
         invalidatedAt: new Date(),
       });
     } catch (error) {
-      console.error("Error storing invalidated token:", error);
+      Logger.error("Error storing invalidated token:", error);
     }
 
     res.status(200).json({
@@ -620,7 +644,7 @@ app.post("/logout", enhancedVerifyToken, async (req, res) => {
       clearToken: true,
     });
   } catch (error) {
-    console.error("Logout error:", error);
+    Logger.error("Logout error:", error);
     res.status(500).json({ error: "Logout failed" });
   }
 });
@@ -629,7 +653,7 @@ app.get("/checkAuth", (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
 
   if (!token) {
-    console.error("No token provided");
+    Logger.error("No token provided");
     return res.status(401).json({
       authenticated: false,
       message: "No token provided",
@@ -643,7 +667,7 @@ app.get("/checkAuth", (req, res) => {
       user: decoded,
     });
   } catch (error) {
-    console.error("Token verification failed:", error);
+    Logger.error("Token verification failed:", error);
     return res.status(401).json({
       authenticated: false,
       message: "Invalid token",
@@ -666,7 +690,7 @@ app.get("/getUserData", enhancedVerifyToken, async (req, res) => {
       email: user.email,
     });
   } catch (error) {
-    console.error("Get user data error:", error);
+    Logger.error("Get user data error:", error);
     res.status(500).json({ error: "Failed to fetch user data" });
   }
 });
@@ -686,7 +710,7 @@ app.post(
     { name: "photoCertificate", maxCount: 1 },
   ]),
   async (req, res) => {
-    console.log("Starting property registration process...");
+    Logger.info("Starting property registration process...");
     try {
       const db = client.db(dbName);
       const registrations = db.collection("registrationRequests");
@@ -703,12 +727,12 @@ app.post(
         appointmentInfo = JSON.parse(req.body.appointmentInfo);
         registrationType = "new_registration";
 
-        console.log("Parsed registration data:", {
+        Logger.info("Parsed registration data:", {
           propertyInfo: { ...propertyInfo, sensitiveData: "[REDACTED]" },
           ownerInfo: { ...ownerInfo, sensitiveData: "[REDACTED]" },
         });
       } catch (error) {
-        console.error("JSON parsing error:", error);
+        Logger.error("JSON parsing error:", error);
         return res.status(400).json({
           error: "Invalid JSON data",
           details:
@@ -740,18 +764,18 @@ app.post(
       };
 
       // Save registration request
-      console.log("Saving registration request...");
+      Logger.info("Saving registration request...");
       const result = await registrations.insertOne(registration);
-      console.log("Registration saved with ID:", result.insertedId);
+      Logger.success("Registration saved with ID:", result.insertedId);
 
       // Handle blockchain synchronization
       if (propertyInfo.blockchainId && propertyInfo.transactionHash) {
-        console.log("🔍 REGISTRATION: Received property data:", {
+        Logger.info("🔍 REGISTRATION: Received property data:", {
           propertyId: propertyInfo.propertyId,
           blockchainId: propertyInfo.blockchainId,
           transactionHash: propertyInfo.transactionHash,
         });
-        console.log("Initiating blockchain sync with data:", {
+        Logger.info("Initiating blockchain sync with data:", {
           blockchainId: propertyInfo.blockchainId,
           transactionHash: propertyInfo.transactionHash,
         });
@@ -767,7 +791,7 @@ app.post(
             isVerified: false,
           };
 
-          console.log(
+          Logger.info(
             "🔍 REGISTRATION: Property data prepared for blockchain sync:",
             {
               propertyId: propertyDataForSync.propertyId,
@@ -781,20 +805,20 @@ app.post(
             propertyInfo.transactionHash
           );
 
-          console.log("Blockchain sync completed:", syncResult);
+          Logger.success("Blockchain sync completed:", syncResult);
         } catch (syncError) {
-          console.error("Blockchain sync failed:", syncError);
+          Logger.error("Blockchain sync failed:", syncError);
           // Don't fail the registration if sync fails
         }
       } else {
-        console.log("Skipping blockchain sync - missing required data:", {
+        Logger.warn("Skipping blockchain sync - missing required data:", {
           hasBlockchainId: !!propertyInfo.blockchainId,
           hasTransactionHash: !!propertyInfo.transactionHash,
         });
       }
 
       // Create audit log entry
-      console.log("Creating audit log entry...");
+      Logger.info("Creating audit log entry...");
       await db.collection("auditLog").insertOne({
         action: "PROPERTY_REGISTRATION",
         userId: req.user.email,
@@ -816,8 +840,8 @@ app.post(
         blockchainSync: propertyInfo.blockchainId ? "completed" : "skipped",
       });
     } catch (error) {
-      console.error("Registration error:", error);
-      console.error("Full error details:", {
+      Logger.error("Registration error:", error);
+      Logger.error("Full error details:", {
         message: error.message,
         stack: error.stack,
       });
@@ -850,7 +874,6 @@ app.post(
     try {
       const db = client.db(dbName);
       const transferRequests = db.collection("transferRequests");
-      const properties = db.collection("properties");
 
       // Parse JSON data from form
       let currentOwnerInfo,
@@ -908,47 +931,6 @@ app.post(
       // Insert transfer request
       const result = await transferRequests.insertOne(transferRequest);
 
-      // Update property ownership in properties collection
-      const propertyUpdate = await properties.updateOne(
-        { blockchainId: blockchainInfo.blockchainId },
-        {
-          $set: {
-            currentOwner: newOwnerInfo,
-            lastTransferDate: new Date(blockchainInfo.transferDate * 1000), // Convert from Unix timestamp
-            lastTransferHash: blockchainInfo.transactionHash,
-            lastModified: new Date(),
-          },
-          $push: {
-            ownershipHistory: {
-              owner: currentOwnerInfo,
-              transferDate: new Date(blockchainInfo.transferDate * 1000),
-              transactionHash: blockchainInfo.transactionHash,
-            },
-          },
-        },
-        { upsert: false }
-      );
-
-      if (propertyUpdate.matchedCount === 0) {
-        // If property doesn't exist, create it
-        await properties.insertOne({
-          blockchainId: blockchainInfo.blockchainId,
-          currentOwner: newOwnerInfo,
-          propertyDetails: propertyInfo,
-          lastTransferDate: new Date(blockchainInfo.transferDate * 1000),
-          lastTransferHash: blockchainInfo.transactionHash,
-          createdAt: new Date(),
-          lastModified: new Date(),
-          ownershipHistory: [
-            {
-              owner: currentOwnerInfo,
-              transferDate: new Date(blockchainInfo.transferDate * 1000),
-              transactionHash: blockchainInfo.transactionHash,
-            },
-          ],
-        });
-      }
-
       // Add audit log entry
       await db.collection("auditLog").insertOne({
         action: "PROPERTY_TRANSFER",
@@ -962,20 +944,6 @@ app.post(
         ipAddress: req.ip,
       });
 
-      // Send notifications if needed
-      try {
-        // Assuming you have a notification service
-        await sendTransferNotifications({
-          currentOwnerEmail: currentOwnerInfo.email,
-          newOwnerEmail: newOwnerInfo.email,
-          propertyId: propertyInfo.propertyId,
-          transactionHash: blockchainInfo.transactionHash,
-        });
-      } catch (notificationError) {
-        console.error("Notification error:", notificationError);
-        // Don't fail the transfer if notifications fail
-      }
-
       res.status(201).json({
         message: "Property transfer request submitted successfully",
         requestId: result.insertedId,
@@ -983,7 +951,7 @@ app.post(
         transactionHash: blockchainInfo.transactionHash,
       });
     } catch (error) {
-      console.error("Property transfer error:", error);
+      Logger.error("Property transfer error:", error);
       res.status(500).json({
         message: "Failed to submit transfer request",
         error:
@@ -1004,7 +972,7 @@ app.get("/api/registrations/:propertyId", async (req, res) => {
     const collection = db.collection("registrationRequests");
     const propertyId = req.params.propertyId;
 
-    console.log("Looking up property:", propertyId);
+    Logger.info("Looking up property:", propertyId);
 
     // Try to find the property using different possible field names
     const property = await collection.findOne(
@@ -1024,7 +992,7 @@ app.get("/api/registrations/:propertyId", async (req, res) => {
       }
     );
 
-    console.log("Query result:", property);
+    Logger.info("Query result:", property);
 
     if (!property) {
       // If not found in registrationRequests, try the properties collection
@@ -1071,7 +1039,7 @@ app.get("/api/registrations/:propertyId", async (req, res) => {
       propertyInfo: { blockchainId },
     });
   } catch (error) {
-    console.error("Error fetching blockchain ID:", error);
+    Logger.error("Error fetching blockchain ID:", error);
     res.status(500).json({
       status: 500,
       error: "Internal server error",
@@ -1083,7 +1051,7 @@ app.get("/api/registrations/:propertyId", async (req, res) => {
 
 // Property search route
 app.get("/api/property/search", express.json(), async (req, res) => {
-  console.log("Property search request received");
+  Logger.info("Property search request received");
   console.log("Auth header:", req.headers.authorization);
   console.log("Device ID:", req.headers["x-device-id"]);
   console.log("Search params:", req.query);
@@ -1092,15 +1060,15 @@ app.get("/api/property/search", express.json(), async (req, res) => {
     // Verify token first
     const token = req.headers.authorization?.split(" ")[1];
     if (!token) {
-      console.log("No token provided in search request");
+      Logger.error("No token provided in search request");
       return res.status(401).json({ error: "No token provided" });
     }
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log("Token verified successfully:", decoded.email);
+      Logger.success("Token verified successfully:", decoded.email);
     } catch (jwtError) {
-      console.log("Token verification failed:", jwtError.message);
+      Logger.warn("Token verification failed:", jwtError.message);
       return res.status(401).json({ error: "Invalid token" });
     }
 
@@ -1126,7 +1094,7 @@ app.get("/api/property/search", express.json(), async (req, res) => {
       query.$or = searchConditions;
     }
 
-    console.log("MongoDB query:", JSON.stringify(query, null, 2));
+    Logger.info("MongoDB query:", JSON.stringify(query, null, 2));
 
     const properties = await db
       .collection("properties")
@@ -1134,14 +1102,14 @@ app.get("/api/property/search", express.json(), async (req, res) => {
       .limit(50)
       .toArray();
 
-    console.log(`Found ${properties.length} properties`);
+    Logger.info(`Found ${properties.length} properties`);
 
     res.json({
       properties: properties || [],
       count: properties.length,
     });
   } catch (error) {
-    console.error("Property search error:", error);
+    Logger.error("Property search error:", error);
     res.status(500).json({
       error: "Failed to search properties",
       details:
@@ -1154,22 +1122,22 @@ app.get("/api/property/search", express.json(), async (req, res) => {
 app.get("/api/property/:pid", async (req, res) => {
   try {
     const pid = req.params.pid;
-    console.log("Fetching property details for PID:", pid);
+    Logger.info("Fetching property details for PID:", pid);
 
     const property = await db.collection("properties").findOne({ pid: pid });
 
     if (!property) {
-      console.log("No property found with PID:", pid);
+      Logger.error("No property found with PID:", pid);
       return res.status(404).json({
         error: "Property not found",
         pid: pid,
       });
     }
 
-    console.log("Found property:", property.pid);
+    Logger.success("Found property:", property.pid);
     res.json(property);
   } catch (error) {
-    console.error("Property fetch error:", error);
+    Logger.error("Property fetch error:", error);
     res.status(500).json({
       error: "Failed to fetch property data",
       details: error.message,
@@ -1201,7 +1169,7 @@ app.post("/users", sanitizeInput, async (req, res) => {
 
     res.status(200).json({ message: "User data saved successfully" });
   } catch (error) {
-    console.error("User save error:", error);
+    Logger.error("User save error:", error);
     res.status(500).json({ error: "Failed to save user data" });
   }
 });
@@ -1230,7 +1198,7 @@ app.post("/api/auth/sync", enhancedVerifyToken, async (req, res) => {
 
     res.json({ message: "Token synced successfully" });
   } catch (error) {
-    console.error("Token sync error:", error);
+    Logger.error("Token sync error:", error);
     res.status(500).json({ error: "Failed to sync token" });
   }
 });
@@ -1284,7 +1252,7 @@ app.post("/api/auth/refresh", enhancedVerifyToken, async (req, res) => {
 
     res.json({ token: newToken });
   } catch (error) {
-    console.error("Token refresh error:", error);
+    Logger.error("Token refresh error:", error);
     res.status(500).json({ error: "Failed to refresh token" });
   }
 });
@@ -1312,7 +1280,7 @@ app.post("/api/auth/invalidate", enhancedVerifyToken, async (req, res) => {
 
     res.json({ message: "Token invalidated successfully" });
   } catch (error) {
-    console.error("Token invalidation error:", error);
+    Logger.error("Token invalidation error:", error);
     res.status(500).json({ error: "Failed to invalidate token" });
   }
 });
@@ -1425,7 +1393,7 @@ app.get("/api/registrar-offices", enhancedVerifyToken, async (req, res) => {
       offices: officesWithSlots,
     });
   } catch (error) {
-    console.error("Error fetching registrar offices:", error);
+    Logger.error("Error fetching registrar offices:", error);
     res.status(500).json({
       error: "Failed to fetch sub-registrar offices",
       details:
@@ -1533,7 +1501,7 @@ app.post("/api/appointments", enhancedVerifyToken, async (req, res) => {
       appointmentId: result.insertedId,
     });
   } catch (error) {
-    console.error("Error creating appointment:", error);
+    Logger.error("Error creating appointment:", error);
     res.status(500).json({
       error: "Failed to create appointment",
       details:
@@ -1546,9 +1514,14 @@ app.post("/api/appointments", enhancedVerifyToken, async (req, res) => {
 app.post(
   "/api/request-verification",
   enhancedVerifyToken,
-  upload.single("document"),
+  sanitizeInput,
+  upload.fields([
+    { name: "document1", maxCount: 1 },
+    { name: "document2", maxCount: 1 },
+  ]),
   async (req, res) => {
     try {
+      Logger.info("Received verification request");
       const db = client.db(dbName);
       const verificationRequests = db.collection("verificationRequests");
 
@@ -1556,19 +1529,27 @@ app.post(
       let personalInfo;
       try {
         personalInfo = JSON.parse(req.body.personalInfo);
+        Logger.info("Parsed personal info:", {
+          ...personalInfo,
+          idNumber: "REDACTED", // Don't log sensitive info
+        });
       } catch (error) {
+        Logger.error("Error parsing personal info:", error);
         return res.status(400).json({
           status: "error",
           message: "Invalid personal information format",
         });
       }
 
-      // Get the uploaded file details
-      const document = req.file;
-      if (!document) {
+      // Log received files
+      Logger.info("Received files:", req.files);
+
+      // Get the uploaded files
+      if (!req.files || !req.files.document1) {
+        Logger.error("No primary document uploaded");
         return res.status(400).json({
           status: "error",
-          message: "No document uploaded",
+          message: "Primary document is required",
         });
       }
 
@@ -1577,12 +1558,23 @@ app.post(
         requestId: req.body.requestId || `VR${Date.now()}`,
         userId: req.user.email,
         personalInfo,
-        documentInfo: {
-          originalName: document.originalname,
-          filename: document.filename,
-          mimetype: document.mimetype,
-          size: document.size,
-          path: document.path,
+        documents: {
+          document1: {
+            originalName: req.files.document1[0].originalname,
+            filename: req.files.document1[0].filename,
+            mimetype: req.files.document1[0].mimetype,
+            size: req.files.document1[0].size,
+            path: req.files.document1[0].path,
+          },
+          ...(req.files.document2 && {
+            document2: {
+              originalName: req.files.document2[0].originalname,
+              filename: req.files.document2[0].filename,
+              mimetype: req.files.document2[0].mimetype,
+              size: req.files.document2[0].size,
+              path: req.files.document2[0].path,
+            },
+          }),
         },
         status: "pending",
         submissionDate: new Date(),
@@ -1593,26 +1585,19 @@ app.post(
             status: "completed",
             timestamp: new Date(),
           },
-          {
-            step: "initial_verification",
-            status: "pending",
-            timestamp: null,
-          },
+          { step: "initial_verification", status: "pending", timestamp: null },
           {
             step: "government_verification",
             status: "pending",
             timestamp: null,
           },
-          {
-            step: "final_approval",
-            status: "pending",
-            timestamp: null,
-          },
+          { step: "final_approval", status: "pending", timestamp: null },
         ],
       };
 
-      // Insert the verification request
+      Logger.info("Saving verification request...");
       const result = await verificationRequests.insertOne(verificationRequest);
+      Logger.success("Verification request saved with ID:", result.insertedId);
 
       // Create audit log entry
       await db.collection("auditLog").insertOne({
@@ -1625,6 +1610,7 @@ app.post(
       });
 
       // Return success response
+      Logger.info("Sending success response");
       res.status(201).json({
         status: "success",
         message: "Verification request submitted successfully",
@@ -1632,7 +1618,7 @@ app.post(
         trackingUrl: `/track-verification/${verificationRequest.requestId}`,
       });
     } catch (error) {
-      console.error("Verification request error:", error);
+      Logger.error("Verification request error:", error);
       res.status(500).json({
         status: "error",
         message: "Failed to submit verification request",
@@ -1683,7 +1669,7 @@ app.get(
         },
       });
     } catch (error) {
-      console.error("Get verification status error:", error);
+      Logger.error("Get verification status error:", error);
       res.status(500).json({
         status: "error",
         message: "Failed to fetch verification status",
@@ -1696,7 +1682,7 @@ app.get(
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  Logger.error(err.stack);
 
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
@@ -1717,39 +1703,82 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Graceful shutdown handling
-process.on("SIGTERM", async () => {
-  console.log("SIGTERM received. Starting graceful shutdown...");
-  if (client) {
-    await client.close();
-    console.log("MongoDB connection closed");
-  }
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  console.log("SIGINT received. Starting graceful shutdown...");
-  if (client) {
-    await client.close();
-    console.log("MongoDB connection closed");
-  }
-  process.exit(0);
-});
-
 // Start server
 async function startServer() {
   try {
-    await connectToMongoDB();
-    // Initialize BlockchainSync with MongoDB client
-    blockchainSync = new BlockchainSync(client, dbName);
+    // Set up unhandled rejection handler
+    process.on("unhandledRejection", (reason, promise) => {
+      Logger.error("Unhandled Rejection at:", promise, "reason:", reason);
+      // Don't exit the process, just log the error
+    });
 
-    app.listen(port, () => {
-      console.log(
+    // Set up uncaught exception handler
+    process.on("uncaughtException", (error) => {
+      Logger.error("Uncaught Exception:", error);
+      // Give the server a chance to close gracefully
+      setTimeout(() => {
+        process.exit(1);
+      }, 1000);
+    });
+
+    // Connect to MongoDB
+    await connectToMongoDB();
+    Logger.success("MongoDB connection established successfully");
+
+    // Initialize BlockchainSync with proper error handling
+    try {
+      blockchainSync = new BlockchainSync(client, dbName);
+      Logger.info("BlockchainSync initialized successfully");
+    } catch (error) {
+      Logger.error("Failed to initialize BlockchainSync:", error);
+      // Continue server startup even if BlockchainSync fails
+    }
+
+    // Start the Express server
+    const server = app.listen(port, () => {
+      Logger.info(
         `Server running on port ${port} in ${process.env.NODE_ENV} mode`
       );
     });
+
+    // Handle server-specific errors
+    server.on("error", (error) => {
+      Logger.error("Server error:", error);
+      if (error.code === "EADDRINUSE") {
+        Logger.error(`Port ${port} is already in use`);
+        process.exit(1);
+      }
+    });
+
+    // Graceful shutdown handling
+    const shutdown = async (signal) => {
+      Logger.info(`\n${signal} received. Starting graceful shutdown...`);
+      server.close(async () => {
+        Logger.warn("HTTP server closed");
+        if (client) {
+          try {
+            await client.close();
+            Logger.warn("MongoDB connection closed");
+          } catch (err) {
+            Logger.error("Error closing MongoDB connection:", err);
+          }
+        }
+        process.exit(0);
+      });
+
+      // Force close after 10 seconds
+      setTimeout(() => {
+        Logger.error(
+          "Could not close connections in time, forcefully shutting down"
+        );
+        process.exit(1);
+      }, 10000);
+    };
+
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
   } catch (error) {
-    console.error("Failed to start server:", error);
+    Logger.error("Failed to start server:", error);
     process.exit(1);
   }
 }
