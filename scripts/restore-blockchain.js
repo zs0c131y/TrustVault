@@ -1,3 +1,5 @@
+const process = require("process");
+process.noDeprecation = true;
 require("dotenv").config();
 const { MongoClient } = require("mongodb");
 const fs = require("fs");
@@ -14,7 +16,7 @@ async function restoreBlockchain() {
       contractsPath,
       "contracts/PropertyRegistry.sol/PropertyRegistry.json"
     );
-    const addressPath = path.join(contractsPath, "contract-addresses.json"); // Fixed filename
+    const addressPath = path.join(contractsPath, "contract-addresses.json");
 
     if (!fs.existsSync(artifactPath)) {
       Logger.error(`Artifact not found at: ${artifactPath}`);
@@ -36,10 +38,7 @@ async function restoreBlockchain() {
     }
 
     // Connect to MongoDB
-    client = new MongoClient(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    client = new MongoClient(process.env.MONGO_URI);
     await client.connect();
     Logger.success("Connected to MongoDB successfully");
 

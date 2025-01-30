@@ -553,6 +553,10 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   // console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
   // console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  Logger.info(
+    "Incoming route:",
+    req.headers.referer || req.originalUrl || req.url || "Unknown route"
+  ); // Log the route
   if (process.env.NODE_ENV === "development") {
     // console.log("Body:", JSON.stringify(req.body, null, 2));
   }
@@ -886,6 +890,7 @@ app.post(
         currentOwnerInfo = JSON.parse(req.body.currentOwnerInfo);
         newOwnerInfo = JSON.parse(req.body.newOwnerInfo);
         propertyInfo = JSON.parse(req.body.propertyInfo);
+        console.log("Property Info:", propertyInfo);
         witnessInfo = JSON.parse(req.body.witnessInfo);
         appointmentInfo = JSON.parse(req.body.appointmentInfo);
         blockchainInfo = JSON.parse(req.body.blockchainInfo);
@@ -1525,13 +1530,32 @@ app.post(
       const db = client.db(dbName);
       const verificationRequests = db.collection("verificationRequests");
 
+      // Helper function to redact ID number except last 6 digits
+      function redactIdNumber(idNumber) {
+        if (!idNumber) return "REDACTED";
+
+        // Remove any spaces or special characters
+        const cleanId = idNumber.replace(/[^a-zA-Z0-9]/g, "");
+
+        // If ID is 6 or fewer characters, return all asterisks
+        if (cleanId.length <= 6) {
+          return "*".repeat(cleanId.length);
+        }
+
+        // Create redacted string with last 6 digits visible
+        const visiblePart = cleanId.slice(-6);
+        const redactedPart = "*".repeat(cleanId.length - 6);
+
+        return `${redactedPart}${visiblePart}`;
+      }
+
       // Parse personal information
       let personalInfo;
       try {
         personalInfo = JSON.parse(req.body.personalInfo);
         Logger.info("Parsed personal info:", {
           ...personalInfo,
-          idNumber: "REDACTED", // Don't log sensitive info
+          idNumber: redactIdNumber(personalInfo.idNumber), // Show last 6 digits
         });
       } catch (error) {
         Logger.error("Error parsing personal info:", error);

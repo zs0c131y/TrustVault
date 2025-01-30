@@ -443,3 +443,49 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 });
+
+document.addEventListener("DOMContentLoaded", () => {
+  const documentTypeSelect = document.getElementById("document-type");
+  const documentNumberInput = document.getElementById("document-number");
+
+  // Map of document types to their corresponding ID names
+  const documentIdLabels = {
+    passport: "Passport Number",
+    "id-card": "ID Card Number",
+    "driving-license": "License Number",
+    "utility-bill": "Bill Number",
+  };
+
+  // Update placeholder when document type changes
+  documentTypeSelect.addEventListener("change", function () {
+    const selectedType = this.value;
+    const newPlaceholder = documentIdLabels[selectedType] || "Document ID";
+    documentNumberInput.placeholder = newPlaceholder;
+
+    // Clear the input when document type changes
+    documentNumberInput.value = "";
+
+    // Specific validation for each document type
+    switch (selectedType) {
+      case "passport":
+        documentNumberInput.setAttribute("maxlength", "8");
+        documentNumberInput.pattern = "^[A-Z][0-9]{7}$";
+        break;
+      case "id-card":
+        documentNumberInput.setAttribute("maxlength", "12");
+        documentNumberInput.pattern = "^[0-9]{12}$";
+        break;
+      case "driving-license":
+        documentNumberInput.setAttribute("maxlength", "15");
+        documentNumberInput.pattern = "^[A-Z0-9]{15}$";
+        break;
+      case "utility-bill":
+        documentNumberInput.setAttribute("maxlength", "20");
+        documentNumberInput.pattern = "^[A-Z0-9-]{1,20}$";
+        break;
+      default:
+        documentNumberInput.removeAttribute("maxlength");
+        documentNumberInput.removeAttribute("pattern");
+    }
+  });
+});

@@ -2,6 +2,33 @@ const { Web3 } = require("web3");
 const fs = require("fs");
 const path = require("path");
 const Logger = require("../utils/logger");
+const { prepareForLogging } = require("../utils/loggingHelper");
+
+// Serialize BigInt values to strings for MongoDB
+function serializeBigInt(obj) {
+  if (obj === null || typeof obj !== "object") {
+    if (typeof obj === "bigint") {
+      return obj.toString();
+    }
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(serializeBigInt);
+  }
+
+  const serialized = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === "bigint") {
+      serialized[key] = value.toString();
+    } else if (typeof value === "object") {
+      serialized[key] = serializeBigInt(value);
+    } else {
+      serialized[key] = value;
+    }
+  }
+  return serialized;
+}
 
 class BlockchainSync {
   constructor(mongoClient, dbName) {
@@ -97,12 +124,17 @@ class BlockchainSync {
   }
 
   async syncPropertyToMongoDB(propertyData, txHash) {
-    Logger.info("🔍 BLOCKCHAIN SYNC: Starting property sync with data:", {
+    const logSafeData = prepareForLogging({
       propertyId: propertyData.propertyId,
       blockchainId: propertyData.blockchainId,
       locality: propertyData.locality,
       txHash: txHash,
     });
+
+    Logger.info(
+      "🔍 BLOCKCHAIN SYNC: Starting property sync with data:",
+      logSafeData
+    );
 
     try {
       // Initial validation
@@ -111,8 +143,9 @@ class BlockchainSync {
         !propertyData.locality ||
         !propertyData.blockchainId
       ) {
-        Logger.error("🚨 Missing required fields:", propertyData);
-        throw new Error("Locality and blockchainId are required");
+        const error = new Error("Locality and blockchainId are required");
+        Logger.error("🚨 Missing required fields:", logSafeData);
+        throw error;
       }
 
       const locality = propertyData.locality.trim();
@@ -142,11 +175,14 @@ class BlockchainSync {
         throw new Error("Transaction receipt not found");
       }
 
-      Logger.info("🔍 BLOCKCHAIN SYNC: Transaction receipt found:", {
-        from: txReceipt.from,
-        to: txReceipt.to,
-        blockNumber: txReceipt.blockNumber,
-      });
+      Logger.info(
+        "🔍 BLOCKCHAIN SYNC: Transaction receipt found:",
+        prepareForLogging({
+          from: txReceipt.from,
+          to: txReceipt.to,
+          blockNumber: txReceipt.blockNumber,
+        })
+      );
 
       // Get block data
       const block = await this.web3.eth.getBlock(txReceipt.blockNumber);
@@ -199,7 +235,7 @@ class BlockchainSync {
             from: txReceipt.from,
             to: txReceipt.to,
             transactionHash: txHash,
-            blockNumber: Number(txReceipt.blockNumber),
+            blockNumber: txReceipt.blockNumber.toString(), // Convert BigInt to string
             timestamp: new Date(blockTimestamp * 1000),
             locality: locality,
             blockchainId: propertyData.blockchainId,
@@ -207,11 +243,17 @@ class BlockchainSync {
         ],
       };
 
-      Logger.info("🔍 BLOCKCHAIN SYNC: Upserting property doc:", {
+      // Create safe copy of property doc for logging
+      const logSafePropertyDoc = {
         propertyId: propertyDoc.propertyId,
         currentBlockchainId: propertyDoc.currentBlockchainId,
         locality: propertyDoc.locality,
-      });
+      };
+
+      Logger.info(
+        "🔍 BLOCKCHAIN SYNC: Upserting property doc:",
+        logSafePropertyDoc
+      );
 
       // Use upsert to handle both new properties and updates
       const upsertResult = await db
@@ -231,25 +273,50 @@ class BlockchainSync {
         .createIndex({ "transactions.transactionHash": 1 });
 
       // Verify the upsert
-      const verifyDoc = await db
-        .collection("blockchainTxns")
-        .findOne({ propertyId: propertyData.propertyId });
-      Logger.info("🔍 BLOCKCHAIN SYNC: Verification of upserted doc:", {
-        propertyId: verifyDoc.propertyId,
-        currentBlockchainId: verifyDoc.currentBlockchainId,
-        blockchainIds: verifyDoc.blockchainIds,
-        locality: verifyDoc.locality,
+      const verifyDoc = await db.collection("blockchainTxns").findOne({
+        propertyId: propertyData.propertyId,
       });
 
-      return propertyDoc;
+      if (!verifyDoc) {
+        throw new Error("Failed to verify upserted document");
+      }
+
+      // Create safe copy of verify doc for logging
+      const logSafeVerifyDoc = {
+        propertyId: verifyDoc.propertyId,
+        currentBlockchainId: verifyDoc.currentBlockchainId,
+        blockchainIds: verifyDoc.blockchainIds.map((id) => ({
+          ...id,
+          timestamp: id.timestamp.toISOString(),
+        })),
+        locality: verifyDoc.locality,
+      };
+
+      Logger.info(
+        "🔍 BLOCKCHAIN SYNC: Verification of upserted doc:",
+        logSafeVerifyDoc
+      );
+
+      // Return a clean copy of the property document
+      return {
+        ...propertyDoc,
+        transactions: propertyDoc.transactions.map((tx) => ({
+          ...tx,
+          blockNumber: tx.blockNumber.toString(),
+          timestamp: tx.timestamp.toISOString(),
+        })),
+      };
     } catch (error) {
-      Logger.error("🚨 Error in syncPropertyToMongoDB:", error);
-      Logger.error("🚨 Error details:", {
+      // Create safe error object for logging
+      const logSafeError = {
         message: error.message,
         stack: error.stack,
-        propertyData: JSON.stringify(propertyData, null, 2),
+        propertyData: JSON.stringify(logSafeData, null, 2),
         txHash: txHash,
-      });
+      };
+
+      Logger.error("🚨 Error in syncPropertyToMongoDB:", error);
+      Logger.error("🚨 Error details:", logSafeError);
       throw error;
     }
   }
