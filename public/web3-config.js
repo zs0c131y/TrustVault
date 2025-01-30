@@ -329,21 +329,11 @@ const NETWORKS = {
     rpcUrl: "http://127.0.0.1:8545/",
     explorer: "",
   },
-  sepolia: {
-    chainId: 11155111,
-    name: "Sepolia Testnet",
-    rpcUrl: "https://eth-sepolia.g.alchemy.com/v2/your-api-key",
-    explorer: "https://sepolia.etherscan.io",
-  },
 };
 
 // Utility function to get the target network based on hostname
 function getTargetNetwork() {
-  // Check if we're in a development environment based on hostname
-  const isDevelopment =
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1";
-  return isDevelopment ? NETWORKS.hardhat : NETWORKS.sepolia;
+  return NETWORKS.hardhat;
 }
 
 // MetaMask connection check with retry logic
