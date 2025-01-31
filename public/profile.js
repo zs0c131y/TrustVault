@@ -1,71 +1,505 @@
-// Import Firebase authentication
-import { logout } from "./auth.js";
+// Import Web3 and configurations
+import { initWeb3 } from "./web3-config.js";
 import { auth } from "../firebase.js";
 import { signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getToken, getAuthHeaders, isAuthenticated, logout } from "./auth.js";
 
-// Animation for new activities
-document.querySelectorAll(".new-activity").forEach((element) => {
-  element.addEventListener("mouseover", () => {
-    element.style.animation = "none";
-  });
-});
+let web3Instance = null;
+let userData = null;
+let walletStatus = {
+  isConnected: false,
+  address: null,
+  chainId: null,
+};
 
-// Interactive buttons
-document.getElementById("view-property").addEventListener("click", () => {
-  window.location = "./viewdetail.html";
-});
-
-document.getElementById("view-all-activities").addEventListener("click", () => {
-  window.location = "./activity.html";
-});
-
-document.getElementById("view-documents").addEventListener("click", () => {
-  window.location = "./viewdoc.html";
-});
-
-// Profile picture upload handling
-document
-  .getElementById("upload-profile-picture")
-  .addEventListener("change", function (event) {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = function (e) {
-        // Update the profile picture with the uploaded image
-        document.getElementById("profile-picture").src = e.target.result;
-        alert("Profile picture updated successfully!");
-      };
-      reader.readAsDataURL(file);
-    } else {
-      alert("No file selected.");
-    }
-  });
-
-// Profile picture hover effects
-document.querySelector(".profile-picture").addEventListener("mouseover", () => {
-  document.querySelector(".profile-picture").style.opacity = "0.8";
-});
-
-document.querySelector(".profile-picture").addEventListener("mouseout", () => {
-  document.querySelector(".profile-picture").style.opacity = "1";
-});
-
-// Logout functionality
-document.getElementById("logout").addEventListener("click", async () => {
+// Initialize page data
+async function initializePage() {
   try {
-    // Sign out from Firebase
+    // Check authentication
+    const authenticated = await isAuthenticated();
+    if (!authenticated) {
+      window.location.href = "./Login.html";
+      return;
+    }
+
+    // Setup wallet events
+    setupWalletEventListeners();
+
+    // Check initial wallet connection
+    await checkWalletConnection();
+
+    // Update security center with current status
+    updateSecurityCenter();
+
+    // Fetch user data
+    await fetchUserData();
+
+    // Fetch verified properties
+    await fetchVerifiedProperties();
+
+    // Fetch verified documents
+    await fetchVerifiedDocuments();
+  } catch (error) {
+    console.error("Error initializing page:", error);
+    handleError(error);
+  }
+}
+
+// Fetch user data from the backend
+async function fetchUserData() {
+  try {
+    const response = await fetch("/getUserData", {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch user data");
+    }
+
+    userData = await response.json();
+
+    // Update user name
+    const userNameElement = document.getElementById("user-name");
+    if (userNameElement) {
+      userNameElement.textContent = userData.name || "User";
+    }
+
+    // Update profile picture with initial
+    updateProfileInitial(userData.name);
+
+    // KYC status is always verified as per requirement
+    const verifiedBadge = document.querySelector(".verified-badge");
+    if (verifiedBadge) {
+      verifiedBadge.textContent = "KYC Verified";
+    }
+  } catch (error) {
+    console.error("Error fetching user data:", error);
+    handleError(error);
+  }
+}
+
+// Update profile picture with initial
+function updateProfileInitial(name) {
+  const profileContainer = document.querySelector(".profile-picture-container");
+  if (!profileContainer) return;
+
+  // Get initials from name
+  const initials = name
+    ? name
+        .split(" ")
+        .map((part) => part.charAt(0).toUpperCase())
+        .slice(0, 2)
+        .join("")
+    : "U";
+
+  profileContainer.innerHTML = `
+    <div class="profile-picture">
+      <div class="profile-initial">
+        ${initials}
+      </div>
+    </div>
+  `;
+}
+
+// Fetch verified properties
+async function fetchVerifiedProperties() {
+  if (!userData) {
+    console.log("No user data available");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/list/property", {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) throw new Error("Failed to fetch properties");
+    const result = await response.json();
+
+    const propertyContainer = document.querySelector(".property-portfolio");
+    if (!propertyContainer) {
+      console.log("Property container not found in DOM");
+      return;
+    }
+
+    propertyContainer.innerHTML = "<h2>Property Portfolio</h2>";
+
+    // Get the properties array from the response
+    const properties = result.properties || [];
+
+    let cardCount = 0;
+    for (const property of properties) {
+      // Create property card
+      const propertyCard = document.createElement("div");
+      propertyCard.className = "property-card";
+      propertyCard.innerHTML = `
+        <h3>${property.propertyName || "Property"}</h3>
+        <p>Location: ${property.location || "Location not specified"}</p>
+        <div class="blockchain-info">
+          Contract: ${property.blockchainId || "Processing..."}
+        </div>
+        <button onclick="window.location='./viewdetail.html?id=${
+          property._id
+        }'">
+          View Details
+        </button>
+      `;
+      propertyContainer.appendChild(propertyCard);
+      cardCount++;
+    }
+
+    if (cardCount === 0) {
+      console.log(
+        "No property cards were created, showing 'No properties' message"
+      );
+      propertyContainer.innerHTML += "<p>No verified properties found.</p>";
+    }
+  } catch (error) {
+    console.error("Error fetching properties:", error);
+    handleError(error);
+  }
+}
+// Helper function to handle document viewing
+async function viewDocument(documentId) {
+  try {
+    // Redirect to document detail page
+    window.location.href = `./view-document.html?id=${documentId}`;
+  } catch (error) {
+    console.error("Error viewing document:", error);
+    alert("Failed to view document. Please try again.");
+  }
+}
+
+// Fetch verified documents
+async function fetchVerifiedDocuments() {
+  if (!userData) {
+    console.log("No user data available");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/list/document", {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) throw new Error("Failed to fetch documents");
+    const result = await response.json();
+
+    const documentContainer = document.querySelector(".document-center");
+    if (!documentContainer) {
+      console.log("Document container not found in DOM");
+      return;
+    }
+
+    // Get the documents array from the response
+    const documents = result.documents || [];
+
+    // Create the document center content
+    documentContainer.innerHTML = `
+      <h2>Document Center</h2>
+      <div class="info-item">
+        <label>Verified Documents:</label>
+        <p>${documents.length} Documents <span class="verified-badge">Verified</span></p>
+      </div>
+      <div class="documents-list"></div>
+    `;
+
+    const documentsListDiv = documentContainer.querySelector(".documents-list");
+
+    if (documents.length === 0) {
+      documentsListDiv.innerHTML = "<p>No verified documents found.</p>";
+    } else {
+      // Add each document card
+      documents.forEach((doc) => {
+        documentsListDiv.appendChild(createDocumentCard(doc));
+      });
+    }
+
+    // Add verify new document button
+    const verifyButton = document.createElement("button");
+    verifyButton.id = "verify-new-document";
+    verifyButton.textContent = "Verify New Document";
+    verifyButton.addEventListener("click", () => {
+      window.location.href = "./verify-document.html";
+    });
+    documentContainer.appendChild(verifyButton);
+  } catch (error) {
+    console.error("Error fetching documents:", error);
+    handleError(error);
+  }
+}
+
+// Helper function to create document card HTML
+function createDocumentCard(doc) {
+  const card = document.createElement("div");
+  card.className = "document-card";
+
+  card.innerHTML = `
+    <div class="document-info">
+      <h3>${doc.documentType}</h3>
+      <p>Request ID: ${doc.requestId}</p>
+      <p>Verification Date: ${new Date(
+        doc.verificationDate
+      ).toLocaleDateString()}</p>
+      <div class="blockchain-info">
+        Contract: ${doc.blockchainId || "Processing..."}
+      </div>
+    </div>
+    <div class="document-actions">
+      <button class="action-button">View Details</button>
+    </div>
+  `;
+
+  // Add event listener to the view button
+  const viewButton = card.querySelector(".action-button");
+  viewButton.addEventListener("click", () => {
+    window.location.href = `./viewdoc.html?id=${doc._id}`;
+  });
+
+  return card;
+}
+
+// Create property card HTML
+function createPropertyCard(property) {
+  const div = document.createElement("div");
+  div.className = "property-card";
+  div.innerHTML = `
+        <h3>${property.propertyName || "Unnamed Property"}</h3>
+        <p>Location: ${property.location || "Location not specified"}</p>
+        <p>Registry: ${property.registryId || "N/A"}
+            <span class="verified-badge">Verified</span>
+        </p>
+        <div class="blockchain-info">
+            Contract: ${property.blockchainId || "Processing..."}
+        </div>
+        <button onclick="window.location='./viewdetail.html?id=${
+          property._id
+        }'">View Details</button>
+    `;
+  return div;
+}
+
+// Create document item HTML
+function createDocumentItem(doc) {
+  return `
+        <div class="document-item">
+            <div class="document-info">
+                <h3>${doc.name}</h3>
+                <small>Verified on ${new Date(
+                  doc.verificationDate
+                ).toLocaleDateString()}</small>
+            </div>
+            <div class="document-actions">
+                <button class="action-button" onclick="viewDocument('${
+                  doc._id
+                }')">View</button>
+                <button class="action-button" onclick="downloadDocument('${
+                  doc._id
+                }')">Download</button>
+            </div>
+        </div>
+    `;
+}
+
+async function checkWalletConnection() {
+  try {
+    if (!window.ethereum) {
+      updateSecurityCenter("MetaMask not installed");
+      return false;
+    }
+
+    const accounts = await window.ethereum.request({ method: "eth_accounts" });
+    if (accounts.length > 0) {
+      walletStatus.isConnected = true;
+      walletStatus.address = accounts[0];
+      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      walletStatus.chainId = parseInt(chainId, 16).toString();
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Error checking wallet connection:", error);
+    return false;
+  }
+}
+
+// Update security center
+function updateSecurityCenter(errorMessage = null) {
+  const securityContainer = document.querySelector(".security-center");
+  if (!securityContainer) return;
+
+  let statusHTML = "<h2>Security Center</h2>";
+
+  if (errorMessage) {
+    statusHTML += `
+      <div class="alert alert-warning">
+        ${errorMessage}
+      </div>
+    `;
+  }
+
+  statusHTML += `
+    <div class="info-item">
+      <label>Wallet Status:</label>
+      <p>${walletStatus.isConnected ? "Connected" : "Not Connected"} 
+         <span class="verified-badge">${
+           walletStatus.isConnected ? "Active" : "Inactive"
+         }</span>
+      </p>
+    </div>
+  `;
+
+  if (walletStatus.isConnected && walletStatus.address) {
+    statusHTML += `
+      <div class="wallet-details">
+        <div class="info-item">
+          <label>Wallet Address:</label>
+          <p class="blockchain-info">${walletStatus.address}</p>
+        </div>
+        ${
+          walletStatus.chainId
+            ? `
+          <div class="info-item">
+            <label>Network:</label>
+            <p>Chain ID: ${walletStatus.chainId}</p>
+          </div>
+        `
+            : ""
+        }
+        <button id="change-wallet" class="btn btn-secondary">
+          Connect Different Wallet
+        </button>
+      </div>
+    `;
+  } else {
+    statusHTML += `
+      <div class="wallet-connect">
+        <button id="connect-wallet" class="btn btn-primary">
+          Connect MetaMask Wallet
+        </button>
+      </div>
+    `;
+  }
+
+  securityContainer.innerHTML = statusHTML;
+
+  // Add event listeners for the buttons
+  const connectButton = document.getElementById("connect-wallet");
+  const changeButton = document.getElementById("change-wallet");
+
+  if (connectButton) {
+    connectButton.addEventListener("click", connectWallet);
+  }
+  if (changeButton) {
+    changeButton.addEventListener("click", changeWallet);
+  }
+}
+
+// Connect wallet function
+async function connectWallet() {
+  try {
+    if (!window.ethereum) {
+      updateSecurityCenter("MetaMask not installed");
+      return;
+    }
+
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts",
+    });
+
+    if (accounts[0]) {
+      walletStatus.isConnected = true;
+      walletStatus.address = accounts[0];
+      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      walletStatus.chainId = parseInt(chainId, 16).toString();
+      updateSecurityCenter();
+    }
+  } catch (error) {
+    console.error("Error connecting wallet:", error);
+    updateSecurityCenter(
+      "Failed to connect wallet. Make sure MetaMask is installed and unlocked."
+    );
+  }
+}
+
+// Change wallet function
+async function changeWallet() {
+  try {
+    if (!window.ethereum) {
+      updateSecurityCenter("MetaMask not installed");
+      return;
+    }
+
+    await window.ethereum.request({
+      method: "wallet_requestPermissions",
+      params: [{ eth_accounts: {} }],
+    });
+
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts",
+    });
+
+    if (accounts[0]) {
+      walletStatus.isConnected = true;
+      walletStatus.address = accounts[0];
+      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      walletStatus.chainId = parseInt(chainId, 16).toString();
+      updateSecurityCenter();
+    }
+  } catch (error) {
+    console.error("Error changing wallet:", error);
+    updateSecurityCenter("Failed to change wallet. Please try again.");
+  }
+}
+
+// Event listener for MetaMask connection
+function setupWalletEventListeners() {
+  if (window.ethereum) {
+    window.ethereum.on("accountsChanged", (accounts) => {
+      if (accounts.length === 0) {
+        walletStatus.isConnected = false;
+        walletStatus.address = null;
+      } else {
+        walletStatus.isConnected = true;
+        walletStatus.address = accounts[0];
+      }
+      updateSecurityCenter();
+    });
+
+    window.ethereum.on("chainChanged", (chainId) => {
+      walletStatus.chainId = parseInt(chainId, 16).toString();
+      updateSecurityCenter();
+    });
+  }
+}
+
+// Handle logout
+async function handleLogout() {
+  try {
     await signOut(auth);
-
-    // Use our JWT logout function
     await logout();
-
-    // No need for redirect here as it's handled in the logout function
   } catch (error) {
     console.error("Logout error:", error);
-    alert("Error during logout. Please try again.");
-
-    // Even if there's an error, attempt to clean up
-    localStorage.removeItem("token");
     window.location.href = "./Login.html";
   }
-});
+}
+
+// Error handling
+function handleError(error) {
+  if (
+    error.message.includes("401") ||
+    error.message.includes("unauthorized") ||
+    error.message === "Unauthorized"
+  ) {
+    window.location.href = "./Login.html";
+    return;
+  }
+  console.error("Error:", error);
+}
+
+// Initialize page when DOM is loaded
+document.addEventListener("DOMContentLoaded", initializePage);

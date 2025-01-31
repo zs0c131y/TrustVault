@@ -1530,32 +1530,13 @@ app.post(
       const db = client.db(dbName);
       const verificationRequests = db.collection("verificationRequests");
 
-      // Helper function to redact ID number except last 6 digits
-      function redactIdNumber(idNumber) {
-        if (!idNumber) return "REDACTED";
-
-        // Remove any spaces or special characters
-        const cleanId = idNumber.replace(/[^a-zA-Z0-9]/g, "");
-
-        // If ID is 6 or fewer characters, return all asterisks
-        if (cleanId.length <= 6) {
-          return "*".repeat(cleanId.length);
-        }
-
-        // Create redacted string with last 6 digits visible
-        const visiblePart = cleanId.slice(-6);
-        const redactedPart = "*".repeat(cleanId.length - 6);
-
-        return `${redactedPart}${visiblePart}`;
-      }
-
       // Parse personal information
       let personalInfo;
       try {
         personalInfo = JSON.parse(req.body.personalInfo);
         Logger.info("Parsed personal info:", {
           ...personalInfo,
-          idNumber: redactIdNumber(personalInfo.idNumber), // Show last 6 digits
+          idNumber: "REDACTED",
         });
       } catch (error) {
         Logger.error("Error parsing personal info:", error);
@@ -1565,10 +1546,7 @@ app.post(
         });
       }
 
-      // Log received files
-      Logger.info("Received files:", req.files);
-
-      // Get the uploaded files
+      // Validate uploaded files
       if (!req.files || !req.files.document1) {
         Logger.error("No primary document uploaded");
         return res.status(400).json({
@@ -1619,26 +1597,33 @@ app.post(
         ],
       };
 
-      Logger.info("Saving verification request...");
+      // Generate blockchain ID and sync with blockchain
+      const { blockchainId, txData } =
+        await blockchainSync.syncDocumentToBlockchain(verificationRequest);
+      verificationRequest.blockchainId = blockchainId;
+
+      Logger.info(
+        "Saving verification request with blockchain ID:",
+        blockchainId
+      );
       const result = await verificationRequests.insertOne(verificationRequest);
-      Logger.success("Verification request saved with ID:", result.insertedId);
 
       // Create audit log entry
       await db.collection("auditLog").insertOne({
         action: "VERIFICATION_REQUEST_SUBMITTED",
         userId: req.user.email,
         requestId: verificationRequest.requestId,
+        blockchainId: blockchainId,
         documentType: personalInfo.documentType,
         timestamp: new Date(),
         ipAddress: req.ip,
       });
 
-      // Return success response
-      Logger.info("Sending success response");
       res.status(201).json({
         status: "success",
         message: "Verification request submitted successfully",
         requestId: verificationRequest.requestId,
+        blockchainId: blockchainId,
         trackingUrl: `/track-verification/${verificationRequest.requestId}`,
       });
     } catch (error) {
@@ -1655,54 +1640,166 @@ app.post(
 
 // Get verification status endpoint
 app.get(
-  "/api/verification-status/:requestId",
+  "/api/verify-document/:blockchainId",
   enhancedVerifyToken,
   async (req, res) => {
     try {
-      const { requestId } = req.params;
-      const verificationRequests = client
-        .db(dbName)
-        .collection("verificationRequests");
+      const { blockchainId } = req.params;
+      Logger.info("Verifying document with blockchain ID:", blockchainId);
 
-      const request = await verificationRequests.findOne({ requestId });
+      // First check in verificationRequests collection
+      const verificationRequest = await db
+        .collection("verificationRequests")
+        .findOne({ blockchainId });
 
-      if (!request) {
-        return res.status(404).json({
-          status: "error",
-          message: "Verification request not found",
+      if (verificationRequest) {
+        return res.json({
+          verified: verificationRequest.status === "approved",
+          verificationDate: verificationRequest.lastUpdated,
+          additionalInfo: `Document Type: ${
+            verificationRequest.personalInfo?.documentType || "Unknown"
+          }`,
         });
       }
 
-      // Check if user is authorized to view this request
-      if (request.userId !== req.user.email) {
-        return res.status(403).json({
-          status: "error",
-          message: "Not authorized to view this verification request",
+      // If not found in verificationRequests, check blockchainTxns
+      const blockchainRecord = await db
+        .collection("blockchainTxns")
+        .findOne({ currentBlockchainId: blockchainId });
+
+      if (blockchainRecord) {
+        // Get blockchain status if BlockchainSync is available
+        let blockchainStatus = null;
+        if (blockchainSync) {
+          try {
+            blockchainStatus = await blockchainSync.contract.methods
+              .properties(blockchainId)
+              .call();
+          } catch (err) {
+            Logger.error("Error fetching blockchain status:", err);
+          }
+        }
+
+        return res.json({
+          verified: blockchainStatus ? blockchainStatus.isVerified : true,
+          verificationDate: blockchainRecord.lastModified || new Date(),
+          additionalInfo: blockchainStatus
+            ? `Owner: ${blockchainStatus.owner}`
+            : undefined,
         });
       }
 
-      res.json({
-        status: "success",
-        data: {
-          requestId: request.requestId,
-          status: request.status,
-          documentType: request.personalInfo.documentType,
-          submissionDate: request.submissionDate,
-          lastUpdated: request.lastUpdated,
-          verificationSteps: request.verificationSteps,
-        },
+      // If document not found in either collection
+      return res.status(404).json({
+        verified: false,
+        error: "Document not found",
       });
     } catch (error) {
-      Logger.error("Get verification status error:", error);
+      Logger.error("Document verification error:", error);
       res.status(500).json({
-        status: "error",
-        message: "Failed to fetch verification status",
+        error: "Failed to verify document",
         details:
           process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   }
 );
+
+// List properties endpoint
+app.get("/api/list/property", enhancedVerifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    Logger.info(`Fetching properties for user: ${userEmail}`);
+
+    // Find properties
+    const properties = await db
+      .collection("blockchainTxns")
+      .find({
+        owner: userEmail,
+        isVerified: true,
+        type: { $ne: "DOCUMENT_VERIFICATION" },
+      })
+      .toArray();
+
+    Logger.info(`Found ${properties.length} properties`);
+
+    // Format the response
+    const formattedProperties = properties.map((property) => {
+      const propertyInfo = property.propertyInfo || {};
+      const ownerInfo = property.ownerInfo || property.currentOwnerInfo || {};
+
+      return {
+        _id: property._id,
+        propertyName: propertyInfo.propertyName || property.propertyName,
+        location: propertyInfo.locality || property.locality,
+        registryId: propertyInfo.registryId || property.registryId,
+        blockchainId: property.currentBlockchainId || propertyInfo.blockchainId,
+        owner: ownerInfo.email || property.owner,
+        status: property.status,
+        lastModified: property.lastModified,
+      };
+    });
+
+    Logger.info(`Formatted ${formattedProperties.length} properties`);
+
+    res.json({
+      success: true,
+      properties: formattedProperties,
+    });
+  } catch (error) {
+    Logger.error("Error fetching verified properties:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch properties",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// List verified documents endpoint
+app.get("/api/list/document", enhancedVerifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    Logger.info(`Fetching verified documents for user: ${userEmail}`);
+
+    // Find documents
+    const documents = await db
+      .collection("blockchainTxns")
+      .find({
+        owner: userEmail,
+        isVerified: true,
+        type: "DOCUMENT_VERIFICATION",
+      })
+      .toArray();
+
+    Logger.info(`Found ${documents.length} verified documents`);
+
+    // Format the response
+    const formattedDocuments = documents.map((doc) => ({
+      _id: doc._id,
+      requestId: doc.requestId,
+      documentType: doc.documentType || "Document",
+      submissionDate: doc.submissionDate,
+      verificationDate: doc.lastUpdated,
+      blockchainId: doc.currentBlockchainId,
+      status: doc.status,
+    }));
+
+    res.json({
+      success: true,
+      documents: formattedDocuments,
+    });
+  } catch (error) {
+    Logger.error("Error fetching verified documents:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch documents",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

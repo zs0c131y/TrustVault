@@ -4,6 +4,15 @@ import { isAuthenticated, getToken, getAuthHeaders } from "./auth.js";
 const maxFileSize = 20 * 1024 * 1024; // 20MB in bytes
 const maxTotalSize = 50 * 1024 * 1024; // 50MB in bytes
 
+// Validate document
+const validateDocumentType = (documentType) => {
+  const validTypes = ["passport", "id-card", "driving-license", "utility-bill"];
+  if (!documentType || !validTypes.includes(documentType)) {
+    throw new Error("Please select a valid document type");
+  }
+  return documentType;
+};
+
 document.addEventListener("DOMContentLoaded", async () => {
   const form = document.getElementById("personal-info-form");
   const documentForm = document.getElementById("document-info-form");
@@ -287,6 +296,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const uploadedFile1 = document.getElementById("upload-document")?.files[0];
     const uploadedFile2 =
       document.getElementById("upload-document-2")?.files[0];
+    const validatedDocumentType = validateDocumentType(documentType);
 
     // Validate required fields
     if (!firstName) throw new Error("First name is required");
@@ -328,8 +338,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       idNumber,
       permanentAddress: pAddress,
       currentAddress: cAddress,
-      documentType,
-      files: [uploadedFile1, uploadedFile2].filter(Boolean), // Filter out undefined/null files
+      documentType: validatedDocumentType, // Use validated document type
+      files: [uploadedFile1, uploadedFile2].filter(Boolean),
     };
   };
 
@@ -365,6 +375,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         documentType: formFields.documentType,
       };
 
+      console.log("Document Type being sent:", formFields.documentType);
       formData.append("personalInfo", JSON.stringify(personalInfo));
 
       // Append files with correct field names
@@ -459,6 +470,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // Update placeholder when document type changes
   documentTypeSelect.addEventListener("change", function () {
     const selectedType = this.value;
+    try {
+      validateDocumentType(selectedType);
+      const newPlaceholder = documentIdLabels[selectedType] || "Document ID";
+      documentNumberInput.placeholder = newPlaceholder;
+      console.log("Valid document type selected:", selectedType);
+    } catch (error) {
+      console.error("Invalid document type:", error);
+      this.value = ""; // Reset to default if invalid
+    }
     const newPlaceholder = documentIdLabels[selectedType] || "Document ID";
     documentNumberInput.placeholder = newPlaceholder;
 

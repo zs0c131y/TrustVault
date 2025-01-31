@@ -60,7 +60,8 @@ body {
   background: linear-gradient(135deg, #3c82f6 0%, #2563eb 100%);
   -webkit-background-clip: text;
   background-clip: inherit;
-  -webkit-text-fill-color: transparent;
+  padding-left: 15px;
+  color: #fff;
 }
 
 .filters {
