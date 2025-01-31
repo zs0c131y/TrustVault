@@ -413,7 +413,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       localStorage.setItem("documentType", formFields.documentType);
 
       console.log("Request successful, redirecting...");
-      window.location.href = "./viewdoc.html";
+      window.location.href = "./docregister.html";
     } catch (error) {
       console.error("Submission error:", error);
       if (errorElement) {
