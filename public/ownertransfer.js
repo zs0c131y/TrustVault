@@ -340,35 +340,30 @@ async function getBlockchainAddressFromPropertyId(propertyId) {
   try {
     console.log("Fetching blockchain address for propertyId:", propertyId);
 
-    // First check if web3 and contract are initialized
     if (!web3Instance || !contractInstance) {
       throw new Error("Blockchain not initialized. Please refresh the page.");
     }
 
-    // Get current account
     const accounts = await web3Instance.eth.getAccounts();
     if (!accounts || accounts.length === 0) {
       throw new Error("No Ethereum account connected");
     }
 
-    // Fetch the property registration details
-    const response = await fetch(`/api/registrations/${propertyId}`, {
+    const response = await fetch(`/api/ids/${propertyId}`, {
       headers: getAuthHeaders(),
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      throw new Error("Property not found");
+      console.error("API Error:", data);
+      throw new Error(data.error || "Property not found");
     }
 
-    const data = await response.json();
-    console.log("API Response:", data);
-
-    // Check for propertyInfo and blockchainId
     if (!data?.propertyInfo?.blockchainId) {
       throw new Error("Property not registered on blockchain");
     }
 
-    // Get and format the blockchain address
     let blockchainAddress = data.propertyInfo.blockchainId;
     console.log("Retrieved blockchainId:", blockchainAddress);
 
@@ -377,7 +372,6 @@ async function getBlockchainAddressFromPropertyId(propertyId) {
       ? blockchainAddress
       : `0x${blockchainAddress}`;
 
-    // Validate address format
     if (!web3Instance.utils.isAddress(blockchainAddress)) {
       throw new Error(`Invalid Ethereum address format: ${blockchainAddress}`);
     }
@@ -2045,9 +2039,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     await initializeForm();
     setupDateValidation();
-
-    // Additional debug logging
-    console.log("Form Initialization Complete");
 
     // Run additional diagnostics
     // await debugContractMethods();

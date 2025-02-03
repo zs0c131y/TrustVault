@@ -10,24 +10,31 @@ import {
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     const token = getToken();
-    if (token) {
-      const response = await fetch("/checkAuth", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const data = await response.json();
-      if (data.authenticated) {
-        console.log("User is already logged in, redirecting to dashboard.");
-        window.location.replace("/dashboard.html"); // Using replace instead of href
-        return; // Add return to prevent further execution
-      } else {
-        console.warn("Token invalid, clearing token.");
-        await logout();
-      }
+    if (!token) {
+      console.log("No token found");
+      return;
     }
+
+    const response = await fetch("/api/check-token-status", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+
+    if (!data.valid) {
+      console.warn("Token invalid:", data.message);
+      await signOut(auth); // Firebase signout
+      window.location.href = "/login.html";
+      return;
+    }
+
+    console.log("Token is valid");
+    window.location.href = "./dashboard.html";
   } catch (error) {
-    console.error("Auth check failed:", error);
-    await logout();
+    console.error("Error checking token:", error);
   }
 });
 
@@ -36,6 +43,8 @@ const signupTab = document.getElementById("signupTab");
 const loginForm = document.getElementById("loginForm");
 const signupForm = document.getElementById("signupForm");
 const errorBox = document.getElementById("errorBox");
+const loginSpinner = document.getElementById("loginSpinner");
+const loginButton = document.getElementById("loginButton");
 
 loginTab.addEventListener("click", () => {
   loginTab.classList.add("active");
@@ -53,6 +62,9 @@ signupTab.addEventListener("click", () => {
 
 document.querySelector(".loginform").addEventListener("submit", async (e) => {
   e.preventDefault();
+
+  loginSpinner.style.display = "block";
+  loginButton.disabled = true;
 
   const email = document.getElementById("loginEmail").value;
   const password = document.getElementById("loginPassword").value;
@@ -95,6 +107,9 @@ document.querySelector(".loginform").addEventListener("submit", async (e) => {
   } catch (error) {
     console.error("Login error:", error);
     showError(getErrorMessage(error.code || error.message));
+  } finally {
+    loginSpinner.style.display = "none";
+    loginButton.disabled = false;
   }
 });
 

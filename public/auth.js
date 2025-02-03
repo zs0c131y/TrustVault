@@ -330,13 +330,4 @@ export const initAuth = () => {
   return isAuthenticated();
 };
 
-// Debug helper (remove in production)
-export const debugAuth = () => {
-  return {
-    environment: ENV,
-    storageKeys: STORAGE_KEYS,
-    currentToken: getToken(),
-    deviceId: getDeviceId(),
-    deviceInfo: getDeviceInfo(),
-  };
-};
+export { getDeviceInfo };

@@ -52,27 +52,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
 
   const createVerifiedProperty = (data) => {
-    const documentType =
-      localStorage.getItem("documentType") || "Not Available";
-    const verificationDate = new Date(
-      data.verificationDate || Date.now()
-    ).toLocaleDateString();
-
     return `
       <div class="property-details">
-        Congratulations! Your Document is Verified
+        Your Document is ${data.verified ? 'Verified ✅' : 'Not Verified ⌛'}
       </div>
       <div class="property-card">
-        <div class="property-title">Document Type: <span id="document">${documentType}</span></div>
-        <div class="address">Verified On: <span id="date">${verificationDate}</span></div>
-        <div class="blockchain-id">Blockchain ID: <span>${
-          data.blockchainId
-        }</span></div>
-        ${
-          data.additionalInfo
-            ? `<div class="additional-info">${data.additionalInfo}</div>`
-            : ""
-        }
+        <div class="property-title">Document Type: ${data.documentType}</div>
+        <div class="blockchain-id">Blockchain ID: ${data.blockchainId}</div>
       </div>
     `;
   };
@@ -95,66 +81,44 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const handleVerification = async () => {
     const value = searchInput.value;
-
+  
     if (!isValidEthereumAddress(value)) {
       errorMessage.textContent = "Please enter a valid blockchain ID";
       errorMessage.style.display = "block";
       resultContainer.innerHTML = "";
       return;
     }
-
+  
     try {
-      // Check authentication before proceeding
       if (!(await isAuthenticated())) {
         window.location.href = "./login.html";
         return;
       }
-
+  
       errorMessage.style.display = "none";
       toggleLoading(true);
-
-      // Make API call to verify document with proper error handling
+  
       const response = await fetch(`/api/verify-document/${value}`, {
         method: "GET",
         headers: getAuthHeaders(),
       });
-
-      // Handle HTTP error responses
-      if (!response.ok) {
-        if (response.status === 404) {
-          resultContainer.innerHTML = createPendingMessage(value);
-          return;
-        }
-
-        // Try to get detailed error message from response
-        let errorMsg = "Verification request failed";
-        try {
-          const errorData = await response.json();
-          errorMsg = errorData.error || errorData.message || errorMsg;
-        } catch (e) {
-          // If parsing JSON fails, use status text
-          errorMsg = response.statusText || errorMsg;
-        }
-
-        throw new Error(errorMsg);
-      }
-
+  
       const data = await response.json();
-
-      if (data.verified) {
-        resultContainer.innerHTML = createVerifiedProperty({
-          blockchainId: value,
-          verificationDate: data.verificationDate,
-          additionalInfo: data.additionalInfo,
-        });
-      } else {
-        resultContainer.innerHTML = createPendingMessage(value);
+  
+      if (!response.ok) {
+        throw new Error(data.error || 'Verification request failed');
       }
+  
+      resultContainer.innerHTML = createVerifiedProperty({
+        blockchainId: value,
+        verified: data.verified,
+        documentType: data.documentType
+      });
     } catch (error) {
       console.error("Verification error:", error);
-      errorMessage.textContent =
-        error.message || "Failed to verify document. Please try again.";
+      errorMessage.textContent = error.message || "Failed to verify document. Please try again.";
       errorMessage.style.display = "block";
+      resultContainer.innerHTML = "";
     } finally {
       toggleLoading(false);
     }

@@ -1,8 +1,18 @@
 // Import Web3 and configurations
 import { initWeb3 } from "./web3-config.js";
-import { auth } from "../firebase.js";
-import { signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import { getToken, getAuthHeaders, isAuthenticated, logout } from "./auth.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import {
+  getAuth,
+  signOut,
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import {
+  getToken,
+  getAuthHeaders,
+  isAuthenticated,
+  getDeviceId,
+  getDeviceInfo,
+} from "./auth.js";
+import { firebaseConfig } from "./config.js";
 
 let web3Instance = null;
 let userData = null;
@@ -11,6 +21,12 @@ let walletStatus = {
   address: null,
   chainId: null,
 };
+const logoutSpinner = document.getElementById("loginSpinner");
+const logoutButton = document.getElementById("logout");
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 
 // Initialize page data
 async function initializePage() {
@@ -478,15 +494,48 @@ function setupWalletEventListeners() {
 }
 
 // Handle logout
-async function handleLogout() {
+document.getElementById("logout").addEventListener("click", async () => {
+  loginSpinner.style.display = "block";
+  logoutButton.disabled = true;
+
   try {
-    await signOut(auth);
-    await logout();
+    const token =
+      localStorage.getItem("trustvault_prod_token") ||
+      localStorage.getItem("trustvault_dev_token");
+    if (token) {
+      await fetch("/api/auth/invalidate", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Device-ID": getDeviceId(),
+        },
+        body: JSON.stringify({
+          deviceInfo: getDeviceInfo(),
+        }),
+      });
+    }
+
+    // Then sign out from Firebase
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Redirect to login page
+    window.location.href = "/login.html";
+    localStorage.clear();
   } catch (error) {
-    console.error("Logout error:", error);
-    window.location.href = "./Login.html";
+    console.error("Error during logout:", error);
+    // If server invalidation fails, still try to sign out from Firebase
+    try {
+      await signOut(auth);
+      localStorage.clear();
+      window.location.href = "/login.html";
+    } catch (firebaseError) {
+      console.error("Firebase signout error:", firebaseError);
+    } finally {
+      loginSpinner.style.display = "none";
+      logoutButton.disabled = false;
+    }
   }
-}
+});
 
 // Error handling
 function handleError(error) {

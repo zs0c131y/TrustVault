@@ -37,7 +37,7 @@ class BlockchainSync {
       this.dbName = dbName;
 
       this.web3 = new Web3(
-        new Web3.providers.HttpProvider("http://localhost:8545")
+        new Web3.providers.HttpProvider("http://127.0.0.1:8545")
       );
 
       const projectRoot = path.resolve(__dirname, "..");
@@ -91,6 +91,9 @@ class BlockchainSync {
         documentVerificationArtifact.abi,
         documentContractAddress
       );
+
+      // Set the default contract to propertyContract since it's used most frequently
+      this.contract = this.propertyContract;
 
       Logger.success("BlockchainSync initialized successfully");
       Logger.info("PropertyRegistry Address:", propertyContractAddress);
@@ -354,10 +357,10 @@ class BlockchainSync {
             continue;
           }
 
-          if (record.type === "PROPERTY") {
-            await this.restoreProperty(record, deployer);
-          } else if (record.type === "DOCUMENT_VERIFICATION") {
+          if (record.type === "DOCUMENT_VERIFICATION") {
             await this.restoreDocument(record, deployer);
+          } else {
+            await this.restoreProperty(record, deployer);
           }
         } catch (error) {
           Logger.error(
@@ -404,7 +407,12 @@ class BlockchainSync {
           gas: 500000,
         });
 
-      await this.updateTransactionRecord(record, registerTx, deployer);
+      await this.updateTransactionRecord(
+        record,
+        registerTx,
+        deployer,
+        "RESTORATION"
+      );
       Logger.success(
         `Property registered successfully. Transaction hash: ${registerTx.transactionHash}`
       );
@@ -450,7 +458,12 @@ class BlockchainSync {
             gas: 500000,
           });
 
-        await this.updateTransactionRecord(record, registerTx, deployer);
+        await this.updateTransactionRecord(
+          record,
+          registerTx,
+          deployer,
+          "RESTORATION"
+        );
         Logger.success(
           `Document registered successfully. Transaction hash: ${registerTx.transactionHash}`
         );
