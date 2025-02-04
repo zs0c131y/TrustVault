@@ -318,11 +318,26 @@ async function checkAuthentication() {
 // User data fetch
 async function getUserData() {
   try {
+    const token = getToken();
+    if (!token) {
+      console.log("No token found");
+      return null;
+    }
+
     const response = await fetch("/getUserData", {
-      headers: getAuthHeaders(),
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        // Handle unauthorized access - redirect to login
+        window.location.href = "/login.html";
+        return null;
+      }
       throw new Error(`Failed to fetch user data: ${response.status}`);
     }
 
@@ -440,9 +455,12 @@ const blockchainUtils = {
 async function prefillUserEmail() {
   try {
     const userData = await getUserData();
-    console.log("Attempting to prefill email with user data:", userData);
+    if (!userData) {
+      console.log("No user data available for prefill");
+      return;
+    }
 
-    if (userData && userData.email) {
+    if (userData.email) {
       const emailInput = document.querySelector(
         'section:first-of-type input[type="email"]'
       );
@@ -455,6 +473,7 @@ async function prefillUserEmail() {
     }
   } catch (error) {
     console.error("Error prefilling email:", error);
+    // Continue with form initialization even if prefill fails
   }
 }
 
@@ -1253,26 +1272,26 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       throw new Error("Property ID is required");
     }
 
-    // Get blockchain address from API
-    const response = await fetch(`/api/registrations/${propertyId}`, {
+    // Get blockchain ID from the correct endpoint
+    const response = await fetch(`/api/ids/${propertyId}`, {
       headers: getAuthHeaders(),
     });
 
     if (!response.ok) {
-      throw new Error("Failed to fetch property registration data");
+      const errorData = await response.json();
+      throw new Error(errorData.error || "Failed to fetch blockchain ID");
     }
 
     const data = await response.json();
-    console.log("API Response data:", data);
+    console.log("Blockchain ID lookup response:", data);
 
     if (!data?.propertyInfo?.blockchainId) {
-      throw new Error("Property blockchain ID not found in registration data");
+      throw new Error("Blockchain ID not found for property");
     }
 
-    // Format blockchain address
-    blockchainAddress = data.propertyInfo.blockchainId.startsWith("0x")
-      ? data.propertyInfo.blockchainId
-      : `0x${data.propertyInfo.blockchainId}`;
+    // Use the blockchain ID from the response
+    blockchainAddress = data.propertyInfo.blockchainId;
+    console.log("Using blockchain address:", blockchainAddress);
 
     if (!web3Instance.utils.isAddress(blockchainAddress)) {
       throw new Error(
@@ -1280,16 +1299,20 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       );
     }
 
-    // Get property using the getProperty function
-    console.log("Fetching property from blockchain:", blockchainAddress);
-    const propertyInfo = await contractInstance.methods
-      .getProperty(blockchainAddress)
-      .call();
-    console.log("Property info from blockchain:", propertyInfo);
+    // Try to get property details from blockchain
+    let propertyInfo;
+    try {
+      propertyInfo = await contractInstance.methods
+        .getProperty(blockchainAddress)
+        .call();
+      console.log("Property info from blockchain:", propertyInfo);
+    } catch (error) {
+      console.error("Error getting property from blockchain:", error);
+      throw new Error("Property not found on blockchain or not accessible");
+    }
 
-    // Verify ownership
-    if (propertyInfo[4].toLowerCase() !== currentAccount.toLowerCase()) {
-      // Index 4 is owner in the returned array
+    // Verify ownership with case-insensitive comparison
+    if (propertyInfo.owner.toLowerCase() !== currentAccount.toLowerCase()) {
       throw new Error("You are not the current owner of this property");
     }
 
@@ -1312,39 +1335,18 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       newOwnerAddress
     );
 
-    // Get account balance to ensure sufficient funds
-    const balance = await web3Instance.eth.getBalance(currentAccount);
-    console.log(
-      "Account balance:",
-      web3Instance.utils.fromWei(balance, "ether"),
-      "ETH"
-    );
-
-    // Estimate gas with full error handling
+    // Estimate gas
     let gasEstimate;
     try {
       gasEstimate = await transferMethod.estimateGas({
         from: currentAccount,
-        gas: 5000000, // Higher initial gas limit for estimation
+        gas: 5000000,
       });
       console.log("Gas estimate:", gasEstimate);
     } catch (gasError) {
       console.error("Gas estimation error:", gasError);
-
-      // If gas estimation fails, use a conservative default
       gasEstimate = 300000;
-      console.log("Using default gas estimate:", gasEstimate);
     }
-
-    // Calculate total gas cost
-    const gasCost = web3Instance.utils
-      .toBN(gasEstimate)
-      .mul(web3Instance.utils.toBN(adjustedGasPrice));
-    console.log(
-      "Estimated gas cost:",
-      web3Instance.utils.fromWei(gasCost, "ether"),
-      "ETH"
-    );
 
     // Send transfer transaction with optimized gas parameters
     console.log("Sending transfer transaction...");
@@ -1377,19 +1379,19 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
     // Enhanced error handling with specific messages
     if (error.message.includes("Property not found")) {
       throw new Error(
-        "Property not found on blockchain. Please verify the property is registered."
+        "Property not found on blockchain. Please verify the property ID."
       );
     } else if (error.message.includes("Not the owner")) {
       throw new Error("You are not the current owner of this property.");
+    } else if (error.message.includes("Blockchain ID not found")) {
+      throw new Error(
+        "Property's blockchain ID not found in the database. Property may need to be registered first."
+      );
     } else if (error.message.includes("revert")) {
       const revertReason = error.message.includes(":")
         ? error.message.split(":")[1].trim()
         : "Transaction reverted by the contract";
       throw new Error(`Transaction reverted: ${revertReason}`);
-    } else if (error.message.includes("gas")) {
-      throw new Error(
-        "Gas estimation failed. The transaction might not be possible with current settings."
-      );
     }
 
     throw error;

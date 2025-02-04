@@ -780,18 +780,32 @@ app.get("/checkAuth", (req, res) => {
   }
 });
 
-app.get("/getUserData", enhancedVerifyToken, async (req, res) => {
+app.get("/getUserData", async (req, res) => {
   try {
+    const token = req.headers.authorization?.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+
+    // Verify the token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtError) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
     const db = client.db(dbName);
     const users = db.collection("users");
-    const user = await users.findOne({ email: req.user.email });
+    const user = await users.findOne({ email: decoded.email });
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
     res.json({
-      name: user.name || req.user.name,
+      name: user.name || decoded.name,
       email: user.email,
     });
   } catch (error) {

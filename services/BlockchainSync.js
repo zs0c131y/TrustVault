@@ -384,41 +384,161 @@ class BlockchainSync {
 
     let propertyExists = false;
     try {
-      await this.propertyContract.methods
-        .getProperty(record.currentBlockchainId)
+      const propertyData = await this.propertyContract.methods
+        .properties(record.currentBlockchainId)
         .call();
-      propertyExists = true;
-      Logger.info(`Property ${record.propertyId} already exists on chain`);
+
+      propertyExists = propertyData && propertyData.propertyId !== "";
+      Logger.info(`Property existence check:`, {
+        exists: propertyExists,
+        blockchainId: record.currentBlockchainId,
+        propertyId: propertyData?.propertyId,
+      });
     } catch (e) {
+      Logger.warn("Error checking property existence:", e);
       propertyExists = false;
     }
 
     if (!propertyExists && record.propertyId) {
       Logger.info(`Registering property ${record.propertyId}`);
-      const registerTx = await this.propertyContract.methods
-        .registerProperty(
-          record.propertyId,
-          record.propertyName || "Name not specified",
-          record.locality || "Locality not specified",
-          record.propertyType || "Type not specified"
-        )
-        .send({
-          from: deployer,
-          gas: 500000,
+      try {
+        // Get expected blockchainId by calling the same hashing logic
+        const expectedId = this.generateDeterministicId({
+          propertyId: record.propertyId,
+          propertyName: record.propertyName || "Name not specified",
+          locality: record.locality || "Locality not specified",
         });
 
-      await this.updateTransactionRecord(
-        record,
-        registerTx,
-        deployer,
-        "RESTORATION"
-      );
-      Logger.success(
-        `Property registered successfully. Transaction hash: ${registerTx.transactionHash}`
-      );
+        Logger.info("Expected blockchain ID:", expectedId);
+
+        // Register the property
+        const registerTx = await this.propertyContract.methods
+          .registerProperty(
+            record.propertyId,
+            record.propertyName || "Name not specified",
+            record.locality || "Locality not specified",
+            record.propertyType || "Type not specified"
+          )
+          .send({
+            from: deployer,
+            gas: 500000,
+          });
+
+        // Get the PropertyRegistered event
+        const events = registerTx.events;
+        const registeredEvent = events.PropertyRegistered;
+        const registeredBlockchainId = registeredEvent
+          ? registeredEvent.returnValues.blockchainId
+          : null;
+
+        Logger.info("Registration transaction details:", {
+          txHash: registerTx.transactionHash,
+          events: events ? Object.keys(events) : [],
+          registeredBlockchainId: registeredBlockchainId,
+        });
+
+        // Wait for confirmation
+        Logger.info("Waiting for transaction confirmation...");
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Verify the property data using both IDs
+        Logger.info("Verifying property registration...");
+        let verificationSuccess = false;
+        const idsToCheck = [
+          record.currentBlockchainId,
+          expectedId,
+          registeredBlockchainId,
+        ].filter((id) => id); // Remove null values
+
+        for (let i = 0; i < 3; i++) {
+          try {
+            // Try each possible blockchain ID
+            for (const blockchainId of idsToCheck) {
+              Logger.info(`Attempting verification with ID: ${blockchainId}`);
+              const verifyData = await this.propertyContract.methods
+                .properties(blockchainId)
+                .call();
+
+              if (verifyData && verifyData.propertyId === record.propertyId) {
+                Logger.info("Property registration verification successful:", {
+                  blockchainId: blockchainId,
+                  propertyId: verifyData.propertyId,
+                  verifyData: verifyData,
+                });
+
+                // Update the record's blockchainId if it's different
+                if (blockchainId !== record.currentBlockchainId) {
+                  Logger.info(
+                    `Updating blockchainId from ${record.currentBlockchainId} to ${blockchainId}`
+                  );
+                  await this.updateBlockchainId(record, blockchainId);
+                }
+
+                await this.updateTransactionRecord(
+                  { ...record, currentBlockchainId: blockchainId },
+                  registerTx,
+                  deployer,
+                  "RESTORATION"
+                );
+
+                Logger.success(
+                  `Property registered successfully. Transaction hash: ${registerTx.transactionHash}`
+                );
+                verificationSuccess = true;
+                break;
+              }
+            }
+
+            if (verificationSuccess) break;
+
+            Logger.info(`Verification attempt ${i + 1} failed, retrying...`);
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          } catch (verifyError) {
+            Logger.warn(
+              `Verification attempt ${i + 1} failed with error:`,
+              verifyError
+            );
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        }
+
+        if (!verificationSuccess) {
+          throw new Error(
+            "Property verification failed after multiple attempts"
+          );
+        }
+      } catch (error) {
+        Logger.error("Error registering property:", error);
+        throw error;
+      }
+    } else {
+      Logger.info(`Property ${record.propertyId} already exists on chain`);
     }
 
+    // Add delay before ownership transfer
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     await this.handleOwnershipTransfer(record, deployer);
+  }
+
+  // Helper function to update blockchain ID in database
+  async updateBlockchainId(record, newBlockchainId) {
+    const db = this.mongoClient.db(this.dbName);
+    const collection = db.collection("blockchainTxns");
+
+    await collection.updateOne(
+      { propertyId: record.propertyId },
+      {
+        $set: { currentBlockchainId: newBlockchainId },
+        $push: {
+          blockchainIds: {
+            id: newBlockchainId,
+            timestamp: new Date(),
+          },
+        },
+      }
+    );
+
+    Logger.info("Updated blockchain ID in database");
   }
 
   async restoreDocument(record, deployer) {
@@ -498,26 +618,36 @@ class BlockchainSync {
     }
   }
 
-  async updateTransactionRecord(record, tx, deployer) {
-    const db = this.mongoClient.db(this.dbName);
-    const collection = db.collection("blockchainTxns");
+  async updateTransactionRecord(record, tx, deployer, type = "RESTORATION") {
+    try {
+      const db = this.mongoClient.db(this.dbName);
+      const collection = db.collection("blockchainTxns");
 
-    await collection.updateOne(
-      { currentBlockchainId: record.currentBlockchainId },
-      {
-        $push: {
-          transactions: {
-            type: "RESTORATION",
-            from: deployer,
-            to: tx.to,
-            transactionHash: tx.transactionHash,
-            blockNumber: tx.blockNumber,
-            timestamp: new Date(),
-            blockchainId: record.currentBlockchainId,
+      // Format transaction data
+      const txData = {
+        type,
+        from: deployer,
+        to: tx.to,
+        transactionHash: tx.transactionHash,
+        blockNumber: String(tx.blockNumber), // Convert to string
+        timestamp: new Date(),
+        blockchainId: record.currentBlockchainId,
+      };
+
+      await collection.updateOne(
+        { currentBlockchainId: record.currentBlockchainId },
+        {
+          $push: {
+            transactions: txData,
           },
-        },
-      }
-    );
+        }
+      );
+
+      Logger.info("Transaction record updated:", txData);
+    } catch (error) {
+      Logger.error("Error updating transaction record:", error);
+      throw error;
+    }
   }
 
   async transferOwnership(propertyId, newOwner, deployer) {

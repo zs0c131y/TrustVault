@@ -98,17 +98,37 @@ class BlockchainManager {
         throw new Error("Current blockchain ID not found");
       }
 
+      // Get property data from blockchain
       let blockchainData = null;
       try {
         if (!this.contractInstance.methods) {
           throw new Error("Contract methods not available");
         }
-        blockchainData = await this.contractInstance.methods
+
+        const propertyData = await this.contractInstance.methods
           .properties(currentBlockchainId)
           .call();
+        console.log("Raw blockchain property data:", propertyData);
+
+        if (!propertyData || !propertyData.propertyId) {
+          throw new Error("Property not found in blockchain");
+        }
+
+        blockchainData = {
+          ...responseData.data, // Merge with API data to ensure we have all fields
+          propertyId: propertyData.propertyId,
+          propertyName: propertyData.propertyName,
+          location: propertyData.location,
+          locality: propertyData.location,
+          propertyType: propertyData.propertyType,
+          owner: propertyData.owner,
+          registrationDate: propertyData.registrationDate,
+          isVerified: propertyData.isVerified,
+          lastTransferDate: propertyData.lastTransferDate,
+        };
       } catch (err) {
         console.error("Error fetching blockchain data:", err);
-        throw err;
+        blockchainData = responseData.data; // Use API data as fallback
       }
 
       // Get the most recent transaction, prioritizing RESTORATION transactions
@@ -130,7 +150,7 @@ class BlockchainManager {
       };
 
       // Initialize transaction data
-      let txData = {
+      const txData = {
         transactionHash:
           latestTransaction?.transactionHash ||
           latestTransaction?.hash ||
@@ -145,30 +165,23 @@ class BlockchainManager {
         status: "Success",
       };
 
-      // Get Web3 transaction data with retry mechanism if hash exists
+      // Get Web3 transaction data if hash exists
       if (txData.transactionHash) {
         try {
-          // Get transaction receipt from blockchain
           const receipt = await this.web3.eth.getTransactionReceipt(
             txData.transactionHash
           );
-
           if (receipt) {
             txData.gasUsed = toBigIntString(receipt.gasUsed);
             txData.status = receipt.status ? "Success" : "Failed";
 
-            // Get block data for timestamp
             const block = await this.web3.eth.getBlock(receipt.blockNumber);
             if (block && block.timestamp) {
               txData.timestamp = Number(block.timestamp) * 1000;
             }
           }
         } catch (err) {
-          console.warn(
-            "Could not fetch transaction receipt. Using stored data:",
-            err
-          );
-          // Fallback to stored data
+          console.warn("Could not fetch transaction receipt:", err);
           txData.gasUsed = toBigIntString(
             latestTransaction?.gasUsed ||
               relevantBlockchainEntry?.gasUsed ||
@@ -179,7 +192,7 @@ class BlockchainManager {
         }
       }
 
-      return {
+      const result = {
         success: true,
         data: {
           ...blockchainData,
@@ -190,6 +203,9 @@ class BlockchainManager {
           transactionHistory: responseData.data.transactions,
         },
       };
+
+      console.log("Final result:", result);
+      return result;
     } catch (error) {
       console.error("Error in getPropertyDetailsByBlockchainId:", error);
       return {
@@ -378,7 +394,6 @@ function createVerifiedProperty(propertyData) {
 }
 
 // Helper function to display blockchain data
-// Helper function to display blockchain data
 function displayBlockchainData(txHash, propertyData, transactionData, events) {
   const container = document.getElementById("blockchainDataContainer");
   container.style.display = "block";
@@ -399,7 +414,9 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
     </div>
     <div class="data-item">
       <div class="data-label">Location</div>
-      <div class="data-value">${propertyData.location || "N/A"}</div>
+      <div class="data-value">${
+        propertyData.location || propertyData.locality || "N/A"
+      }</div>
     </div>
     <div class="data-item">
       <div class="data-label">Property Type</div>
