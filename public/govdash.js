@@ -1,222 +1,190 @@
-// Sample Data
-const documents = {
-    pending: [
-        { 
-            id: "DOC001", 
-            type: "Sale Deed", 
-            status: "urgent", 
-            owner: "John Doe", 
-            date: "2024-12-19",
-            files: ["sale_deed.pdf", "property_photos.jpg", "id_proof.pdf"],
-            details: "Sale deed for Property #123, Green Avenue"
-        },
-        { 
-            id: "DOC002", 
-            type: "Property Transfer", 
-            status: "pending", 
-            owner: "Jane Smith", 
-            date: "2024-12-18",
-            files: ["transfer_deed.pdf", "tax_receipt.pdf"],
-            details: "Property transfer request for Plot #456"
-        }
-    ],
-    transfer: [
-        { 
-            id: "TRF001", 
-            type: "Ownership Transfer", 
-            status: "pending", 
-            from: "Alice", 
-            to: "Bob", 
-            date: "2024-12-19",
-            files: ["ownership_papers.pdf", "consent_letter.pdf"],
-            details: "Complete ownership transfer of residential property"
-        },
-        { 
-            id: "TRF002", 
-            type: "Lease Transfer", 
-            status: "urgent", 
-            from: "Charlie", 
-            to: "Dave", 
-            date: "2024-12-18",
-            files: ["lease_agreement.pdf", "tenant_verification.pdf"],
-            details: "Lease transfer for commercial property"
-        }
-    ],
-    completed: [
-        { 
-            id: "DOC003", 
-            type: "Sale Deed", 
-            status: "completed", 
-            owner: "Eve", 
-            date: "2024-12-19",
-            hash: "0x7d8f...2c1a",
-            files: ["verified_deed.pdf"],
-            details: "Completed sale deed verification"
-        }
-    ]
+import { getToken, getAuthHeaders, isAuthenticated } from "./auth.js";
+
+// State management
+let activities = [];
+let currentTab = "details";
+let currentVerificationDoc = null;
+
+// Fetch dashboard metrics
+async function fetchMetrics() {
+  try {
+    const response = await fetch("/api/metrics", {
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("Raw metrics response:", data);
+    updateMetricsDisplay(data);
+  } catch (error) {
+    console.error("Error fetching metrics:", error);
+    showToast("Failed to load metrics", "error");
+  }
+}
+
+// Update metrics display
+function updateMetricsDisplay(data) {
+  console.log("Updating metrics display:", data);
+
+  // Pending Verifications
+  const pendingValue = document.querySelector(".metric-value.text-red");
+  if (pendingValue) {
+    pendingValue.textContent = data?.pendingCount || "0";
+  }
+  const pendingSubtext = document.querySelector(".card .metric-subtext");
+  if (pendingSubtext) {
+    pendingSubtext.textContent = `${data?.urgentCount || "0"} urgent`;
+  }
+
+  // Transfer Requests
+  const transferValue = document.querySelector(".metric-value.text-yellow");
+  if (transferValue) {
+    transferValue.textContent = data?.transferCount || "0";
+  }
+  const transferSubtext = document.querySelector(
+    ".card:nth-child(2) .metric-subtext"
+  );
+  if (transferSubtext) {
+    transferSubtext.textContent = `${
+      data?.pendingApprovalCount || "0"
+    } pending approval`;
+  }
+
+  // Completed Today
+  const completedValue = document.querySelector(".metric-value.text-green");
+  if (completedValue) {
+    completedValue.textContent = data?.completedCount || "0";
+  }
+  const completedSubtext = document.querySelector(
+    ".card:nth-child(3) .metric-subtext"
+  );
+  if (completedSubtext) {
+    const lastTime = data?.lastCompletedTime
+      ? new Date(data.lastCompletedTime).toLocaleTimeString()
+      : "N/A";
+    completedSubtext.textContent = `Last: ${lastTime}`;
+  }
+}
+
+// Global window functions
+window.showModal = function (modalId) {
+  document.getElementById("modalBackdrop")?.classList.remove("hidden");
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.style.display = "block";
+    if (modalId === "pendingModal") showPendingList();
+    if (modalId === "transferModal") showTransferList();
+    if (modalId === "completedModal") showCompletedList();
+  }
 };
 
-let activities = [];
-let currentTab = 'details';
+window.closeModal = function (modalId) {
+  document.getElementById("modalBackdrop")?.classList.add("hidden");
+  const modal = document.getElementById(modalId);
+  if (modal) modal.style.display = "none";
+  // Reset current verification doc when closing the modal
+  if (modalId === "propertyVerificationModal") {
+    currentVerificationDoc = null;
+  }
+};
 
-// UI Functions
-function showModal(modalId) {
-    document.getElementById('modalBackdrop')?.classList.remove('hidden');
-    const modal = document.getElementById(modalId);
-    if (modal) {
-        modal.style.display = 'block';
-        if (modalId === 'pendingModal') showPendingList();
-        if (modalId === 'transferModal') showTransferList();
-        if (modalId === 'completedModal') showCompletedList();
+window.showToast = function (message, type = "success") {
+  const toast = document.getElementById("toast");
+  if (!toast) return;
+
+  toast.textContent = message;
+  toast.style.display = "block";
+  toast.style.background = type === "success" ? "var(--green)" : "var(--red)";
+
+  setTimeout(() => {
+    toast.style.display = "none";
+  }, 3000);
+};
+
+// Fetch and display pending documents
+// Fetch and display pending documents
+async function fetchPendingDocuments() {
+  try {
+    const response = await fetch("/api/pending-requests", {
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-}
 
-function closeModal(modalId) {
-    document.getElementById('modalBackdrop')?.classList.add('hidden');
-    const modal = document.getElementById(modalId);
-    if (modal) modal.style.display = 'none';
-}
-
-function showToast(message, type = 'success') {
-    const toast = document.getElementById('toast');
-    toast.textContent = message;
-    toast.style.display = 'block';
-    toast.style.background = type === 'success' ? 'var(--green)' : 'var(--red)';
-    
-    setTimeout(() => {
-        toast.style.display = 'none';
-    }, 3000);
-}
-
-// Document Management Functions
-function showDocument(docId) {
-    const doc = findDocument(docId);
-    if (!doc) return;
-
-    const content = document.getElementById('documentContent');
-    updateDocumentContent(doc);
-    showModal('documentModal');
-}
-
-function findDocument(docId) {
-    return [...documents.pending, ...documents.transfer, ...documents.completed]
-        .find(d => d.id === docId);
-}
-
-function updateDocumentContent(doc) {
-    const content = document.getElementById('documentContent');
-    
-    switch(currentTab) {
-        case 'details':
-            content.innerHTML = generateDetailsHTML(doc);
-            break;
-        case 'files':
-            content.innerHTML = generateFilesHTML(doc);
-            break;
-        case 'history':
-            content.innerHTML = generateHistoryHTML(doc);
-            break;
-    }
-}
-
-function generateDetailsHTML(doc) {
-    return `
-        <div class="document-preview">
-            <div class="document-meta">
-                <div>
-                    <h4>Document ID</h4>
-                    <p>${doc.id}</p>
-                </div>
-                <div>
-                    <h4>Type</h4>
-                    <p>${doc.type}</p>
-                </div>
-                <div>
-                    <h4>Status</h4>
-                    <p><span class="status status-${doc.status}">${doc.status.toUpperCase()}</span></p>
-                </div>
-                <div>
-                    <h4>Date</h4>
-                    <p>${doc.date}</p>
-                </div>
-            </div>
-            <div class="document-details">
-                <h4>Details</h4>
-                <p>${doc.details}</p>
-            </div>
-        </div>
-    `;
-}
-
-function generateFilesHTML(doc) {
-    return `
-        <div class="file-list">
-            ${doc.files.map(file => `
-                <div class="file-item">
-                    <div class="file-icon">
-                        <i class="fas fa-file-${getFileIcon(file)}"></i>
-                    </div>
-                    <p>${file}</p>
-                    <button class="btn-secondary" onclick="viewFile('${file}')">View</button>
-                </div>
-            `).join('')}
-        </div>
-    `;
-}
-
-function generateHistoryHTML(doc) {
-    const docActivities = activities.filter(a => a.docId === doc.id);
-    return `
-        <div class="activity-list">
-            ${docActivities.map(activity => `
-                <div class="activity-item">
-                    <div class="activity-icon">
-                        <i class="fas fa-${getActivityIcon(activity.type)}"></i>
-                    </div>
-                    <div>
-                        <p>${getActivityDescription(activity)}</p>
-                        <small class="text-gray">${activity.timestamp}</small>
-                    </div>
-                </div>
-            `).join('')}
-        </div>
-    `;
-}
-
-function getFileIcon(filename) {
-    const ext = filename.split('.').pop().toLowerCase();
-    switch(ext) {
-        case 'pdf': return 'pdf';
-        case 'jpg':
-        case 'jpeg':
-        case 'png': return 'image';
-        default: return 'document';
-    }
-}
-
-function viewFile(filename) {
-    showToast(`Opening ${filename}...`);
-    // Implement actual file viewing logic here
+    const data = await response.json();
+    console.log("Fetched pending documents:", data);
+    return data.requests || [];
+  } catch (error) {
+    console.error("Error fetching pending documents:", error);
+    showToast("Failed to load pending documents", "error");
+    return [];
+  }
 }
 
 // Document Lists
-function showPendingList() {
-    const list = document.getElementById('pendingList');
-    list.innerHTML = generateDocumentTable(documents.pending);
+async function showPendingList() {
+  const pendingDocs = await fetchPendingDocuments();
+  const list = document.getElementById("pendingList");
+  if (list) {
+    const registrationDocs =
+      pendingDocs.filter((doc) => doc?.type === "registration") || [];
+    list.innerHTML = generateDocumentTable(registrationDocs);
+  }
 }
 
-function showTransferList() {
-    const list = document.getElementById('transferList');
-    list.innerHTML = generateDocumentTable(documents.transfer);
+async function showTransferList() {
+  const pendingDocs = await fetchPendingDocuments();
+  const list = document.getElementById("transferList");
+  if (list) {
+    const transferDocs =
+      pendingDocs.filter((doc) => doc?.type === "transfer") || [];
+    list.innerHTML = generateDocumentTable(transferDocs);
+  }
 }
 
-function showCompletedList() {
-    const list = document.getElementById('completedList');
-    list.innerHTML = generateDocumentTable(documents.completed);
+async function showCompletedList() {
+  try {
+    const response = await fetch("/api/pending-requests", {
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("Fetched completed documents:", data);
+    const list = document.getElementById("completedList");
+    if (list) {
+      const completedDocs =
+        data.requests.filter((doc) => doc?.status === "completed") || [];
+      list.innerHTML = generateDocumentTable(completedDocs);
+    }
+  } catch (error) {
+    console.error("Error fetching completed documents:", error);
+    showToast("Failed to load completed documents", "error");
+  }
 }
 
 function generateDocumentTable(docs) {
-    return `
+  if (!docs || !docs.length) {
+    return '<p class="text-center p-4">No documents found</p>';
+  }
+
+  return `
         <table class="table">
             <thead>
                 <tr>
@@ -228,75 +196,406 @@ function generateDocumentTable(docs) {
                 </tr>
             </thead>
             <tbody>
-                ${docs.map(doc => `
+                ${docs
+                  .map(
+                    (doc) => `
                     <tr>
-                        <td>${doc.id}</td>
-                        <td>${doc.type}</td>
-                        <td>${doc.date}</td>
-                        <td><span class="status status-${doc.status}">${doc.status.toUpperCase()}</span></td>
+                        <td>${doc?.propertyId || "N/A"}</td>
+                        <td>${doc?.type || "Unknown"}</td>
+                        <td>${
+                          doc?.createdAt
+                            ? new Date(doc.createdAt).toLocaleDateString()
+                            : "N/A"
+                        }</td>
                         <td>
-                            <button class="btn-primary" onclick="showDocument('${doc.id}')">View Details</button>
+                            <span class="status status-${
+                              doc?.status || "pending"
+                            }">
+                                ${(doc?.status || "PENDING").toUpperCase()}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn-primary" onclick="showVerificationDetails('${
+                              doc?._id
+                            }', '${doc?.type}')">
+                                View & Verify
+                            </button>
                         </td>
                     </tr>
-                `).join('')}
+                `
+                  )
+                  .join("")}
             </tbody>
         </table>
     `;
 }
 
-// Document Actions
-function verifyDocument() {
-    const docId = document.querySelector('#documentContent').querySelector('p').textContent;
-    const doc = findDocument(docId);
-    
-    // Generate blockchain hash
-    const hash = generateHash();
-    
-    // Add to activities
-    addActivity({
-        type: 'verify',
-        docId: docId,
-        hash: hash,
-        timestamp: new Date().toLocaleString()
+// Improved verification details display
+// Verification details display
+window.showVerificationDetails = async function (docId, type) {
+  try {
+    const response = await fetch(`/api/pending-requests`, {
+      headers: getAuthHeaders(),
     });
 
-    // Move to completed
-    moveToCompleted(doc, hash);
-    
-    showToast(`Document ${docId} verified successfully`);
-    closeModal('documentModal');
-    updateDashboard();
-}
-
-function generateHash() {
-    return '0x' + Math.random().toString(16).slice(2, 10);
-}
-
-function moveToCompleted(doc, hash) {
-    // Remove from pending or transfer
-    if (doc.id.startsWith('DOC')) {
-        documents.pending = documents.pending.filter(d => d.id !== doc.id);
-    } else {
-        documents.transfer = documents.transfer.filter(d => d.id !== doc.id);
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
-    // Add to completed
-    documents.completed.push({
-        ...doc,
-        status: 'completed',
-        hash: hash
+
+    const data = await response.json();
+    console.log("Fetched document data:", data);
+
+    const doc = data.requests.find((req) => req._id === docId);
+    if (!doc) {
+      throw new Error("Document not found");
+    }
+
+    currentVerificationDoc = doc;
+    console.log("Current verification doc:", currentVerificationDoc);
+
+    showModal("propertyVerificationModal");
+    window.switchVerificationTab("details");
+  } catch (error) {
+    console.error("Error showing verification details:", error);
+    showToast("Failed to load document details", "error");
+  }
+};
+
+// Tab switching
+window.switchVerificationTab = function (tabName) {
+  if (!currentVerificationDoc) {
+    console.error("No document loaded for verification");
+    return;
+  }
+
+  // Update tab styling
+  const tabs = document.querySelectorAll(".tab");
+  tabs.forEach((tab) => {
+    tab.classList.remove("active");
+    if (tab.getAttribute("onclick").includes(tabName)) {
+      tab.classList.add("active");
+    }
+  });
+
+  // Update content based on selected tab
+  const content = document.getElementById("verificationContent");
+  if (!content) return;
+
+  switch (tabName) {
+    case "details":
+      content.innerHTML = window.generatePropertyDetails(
+        currentVerificationDoc
+      );
+      break;
+    case "owner":
+      content.innerHTML = window.generateOwnerInfo(currentVerificationDoc);
+      break;
+    case "documents":
+      content.innerHTML = window.generateDocumentsList(currentVerificationDoc);
+      break;
+    case "blockchain":
+      content.innerHTML = window.generateBlockchainInfo(currentVerificationDoc);
+      break;
+  }
+};
+
+// Property details generation
+window.generatePropertyDetails = function (doc) {
+  console.log("Generating property details for doc:", doc);
+
+  return `
+      <div class="property-details p-4">
+          <div class="detail-row">
+              <div class="detail-item">
+                  Property ID: ${doc.propertyId || "N/A"}
+              </div>
+              <div class="detail-item">
+                  Property Type: ${
+                    (doc.propertyType || "N/A").charAt(0).toUpperCase() +
+                    (doc.propertyType || "").slice(1)
+                  }
+              </div>
+          </div>
+
+          <div class="detail-row">
+              <div class="detail-item">
+                  Location: ${doc.location || "N/A"}
+              </div>
+              <div class="detail-item">
+                  Land Area: ${doc.landArea || "N/A"}
+              </div>
+          </div>
+
+          <div class="detail-row">
+              <div class="detail-item">
+                  Built Up Area: ${doc.builtUpArea || "N/A"}
+              </div>
+              <div class="detail-item">
+                  Classification: ${doc.classification || "N/A"}
+              </div>
+          </div>
+
+          <div class="detail-row">
+              <div class="detail-item">
+                  Transaction Type: ${
+                    (doc.transactionType || "N/A").charAt(0).toUpperCase() +
+                    (doc.transactionType || "").slice(1)
+                  }
+              </div>
+              <div class="detail-item">
+                  Registration Date: ${
+                    doc.createdAt
+                      ? new Date(doc.createdAt).toLocaleDateString()
+                      : "N/A"
+                  }
+              </div>
+          </div>
+
+          <div class="detail-row">
+              <div class="detail-item">
+                  Property Name: ${doc.propertyName || "N/A"}
+              </div>
+              <div class="detail-item">
+                  Plot Number: ${doc.plotNumber || "N/A"}
+              </div>
+          </div>
+
+          <div class="detail-row">
+              <div class="detail-item">
+                  Purchase Value: ₹${
+                    doc.purchaseValue
+                      ? Number(doc.purchaseValue).toLocaleString()
+                      : "N/A"
+                  }
+              </div>
+              <div class="detail-item">
+                  Stamp Duty: ₹${
+                    doc.stampDuty
+                      ? Number(doc.stampDuty).toLocaleString()
+                      : "N/A"
+                  }
+              </div>
+          </div>
+
+          <div class="verification-notes mt-4">
+              <h3>Verification Notes</h3>
+              <textarea id="verificationNotes" class="w-full p-2 mt-2" rows="4" 
+                  placeholder="Add your verification notes here!"></textarea>
+          </div>
+      </div>
+  `;
+};
+
+window.generateOwnerInfo = function (doc) {
+  const owner = doc.ownerInfo || {};
+
+  return `
+    <div class="owner-info">
+      <h3 class="mb-4">Owner Details</h3>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="detail-item">
+          <label>Name:</label>
+          <span>${owner.name || "N/A"}</span>
+        </div>
+        <div class="detail-item">
+          <label>Email:</label>
+          <span>${owner.email || "N/A"}</span>
+        </div>
+        <div class="detail-item">
+          <label>ID Number:</label>
+          <span>${owner.idNumber || "N/A"}</span>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+window.generateDocumentsList = function (doc) {
+  const documents = doc.documents || {};
+
+  return `
+    <div class="documents-list">
+      ${
+        Object.keys(documents).length
+          ? Object.entries(documents)
+              .map(
+                ([key, value]) => `
+              <div class="document-item p-2 border rounded mb-2 flex justify-between items-center">
+                <span>${key.replace(/([A-Z])/g, " $1").trim()}</span>
+                <button onclick="window.viewDocument('${
+                  doc.propertyId
+                }', '${key}')" class="btn-secondary">
+                  <i class="fas fa-eye"></i> View
+                </button>
+              </div>
+            `
+              )
+              .join("")
+          : '<p class="text-center p-4">No documents available</p>'
+      }
+    </div>
+  `;
+};
+
+window.generateBlockchainInfo = function (doc) {
+  const blockchain = doc.blockchainDetails || {};
+
+  return `
+    <div class="blockchain-info">
+      <h3>Blockchain Information</h3>
+      
+      <div class="detail-row">
+        <span class="detail-label">Transaction Hash:</span>
+        <span class="detail-value">${blockchain.transactionHash || "N/A"}</span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-label">Blockchain ID:</span>
+        <span class="detail-value">${blockchain.contractAddress || "N/A"}</span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-label">Block Number:</span>
+        <span class="detail-value">${blockchain.blockNumber || "N/A"}</span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-label">Verification Status:</span>
+        <span class="detail-value status-${
+          blockchain.verificationStatus?.toLowerCase() === "verified"
+            ? "verified"
+            : "pending"
+        }">
+          ${blockchain.verificationStatus || "Pending"}
+        </span>
+      </div>
+    </div>
+  `;
+};
+
+// Document viewer
+window.viewDocument = async function (propertyId, docKey) {
+  try {
+    const url = `/api/property/${propertyId}/document/${docKey}/view`;
+    const response = await fetch(url, {
+      headers: getAuthHeaders(),
     });
-}
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    window.open(blobUrl, "_blank");
+  } catch (error) {
+    console.error("Error viewing document:", error);
+    showToast("Failed to load document", "error");
+  }
+};
+
+// Document verification
+window.verifyDocument = async function (docId, type) {
+  try {
+    const notes = document.getElementById("verificationNotes")?.value;
+
+    const response = await fetch("/api/complete-verification", {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        documentId: docId,
+        type: type || "registration",
+        verificationNotes: notes,
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    showToast("Document verified successfully");
+    closeModal("propertyVerificationModal");
+    updateDashboard();
+  } catch (error) {
+    console.error("Error verifying document:", error);
+    showToast("Failed to verify document: " + error.message, "error");
+  }
+};
+
+// Document rejection
+window.rejectDocument = async function (docId) {
+  if (!currentVerificationDoc) return;
+
+  const notes = document.getElementById("verificationNotes").value;
+  if (!notes) {
+    showToast("Please add rejection notes", "error");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/reject-verification", {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        documentId: docId,
+        type: currentVerificationDoc.type || "registration",
+        rejectionNotes: notes,
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    showToast("Document rejected");
+    closeModal("propertyVerificationModal");
+    updateDashboard();
+  } catch (error) {
+    console.error("Error rejecting document:", error);
+    showToast("Failed to reject document", "error");
+  }
+};
 
 // Activity Management
 function addActivity(activity) {
-    activities.unshift(activity);
-    updateActivityList();
+  activities.unshift(activity);
+  updateActivityList();
 }
 
 function updateActivityList() {
-    const list = document.getElementById('activityList');
-    list.innerHTML = activities.map(activity => `
+  const list = document.getElementById("activityList");
+  if (!list) return;
+
+  if (!activities.length) {
+    list.innerHTML = '<p class="text-center p-4">No recent activity</p>';
+    return;
+  }
+
+  list.innerHTML = activities
+    .map(
+      (activity) => `
         <div class="activity-item">
             <div class="activity-icon">
                 <i class="fas fa-${getActivityIcon(activity.type)}"></i>
@@ -306,57 +605,57 @@ function updateActivityList() {
                 <small class="text-gray">${activity.timestamp}</small>
             </div>
         </div>
-    `).join('');
+    `
+    )
+    .join("");
 }
 
 function getActivityIcon(type) {
-    switch(type) {
-        case 'verify': return 'check-circle';
-        case 'transfer': return 'exchange-alt';
-        default: return 'file-alt';
-    }
+  switch (type) {
+    case "verify":
+      return "check-circle";
+    case "transfer":
+      return "exchange-alt";
+    default:
+      return "file-alt";
+  }
 }
 
 function getActivityDescription(activity) {
-    switch(activity.type) {
-        case 'verify':
-            return `Document ${activity.docId} verified with hash ${activity.hash}`;
-        case 'transfer':
-            return `Transfer ${activity.docId} processed`;
-        default:
-            return `Action performed on ${activity.docId}`;
-    }
-}
-
-// Tab Management
-function switchTab(tab) {
-    currentTab = tab;
-    
-    // Update tab UI
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
-    
-    // Update content
-    const docId = document.querySelector('#documentContent').querySelector('p').textContent;
-    const doc = findDocument(docId);
-    updateDocumentContent(doc);
-}
-
-// Event Listeners
-window.onclick = function(event) {
-    if (event.target.classList.contains('modal')) {
-        event.target.style.display = "none";
-        document.getElementById('modalBackdrop')?.classList.add('hidden');
-    }
+  switch (activity.type) {
+    case "verify":
+      return `Document ${activity.docId} verified with hash ${activity.hash}`;
+    case "transfer":
+      return `Transfer ${activity.docId} processed`;
+    default:
+      return `Action performed on ${activity.docId}`;
+  }
 }
 
 // Initialize dashboard
-function updateDashboard() {
-    showPendingList();
-    showTransferList();
-    showCompletedList();
-    updateActivityList();
+async function updateDashboard() {
+  await Promise.all([
+    fetchMetrics(),
+    showPendingList(),
+    showTransferList(),
+    showCompletedList(),
+    updateActivityList(),
+  ]);
 }
+
+// Event Listeners
+window.addEventListener("load", () => {
+  updateDashboard();
+  setInterval(updateDashboard, 300000);
+});
+
+// Modal backdrop click handler
+window.onclick = function (event) {
+  if (event.target.classList.contains("modal")) {
+    event.target.style.display = "none";
+    document.getElementById("modalBackdrop")?.classList.add("hidden");
+  }
+};
 
 // Initial load
 updateDashboard();

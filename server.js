@@ -1877,6 +1877,7 @@ app.get("/api/list/property", enhancedVerifyToken, async (req, res) => {
         owner: ownerInfo.email || property.owner,
         status: property.status,
         lastModified: property.lastModified,
+        propertyId: propertyInfo.propertyId || property.propertyId,
       };
     });
 
@@ -1891,6 +1892,280 @@ app.get("/api/list/property", enhancedVerifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to fetch properties",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+function calculatePropertyAge(registrationDate) {
+  if (!registrationDate) return "Not specified";
+
+  const regDate = new Date(registrationDate);
+  if (isNaN(regDate.getTime())) return "Not specified";
+
+  const today = new Date();
+  const yearDiff = today.getFullYear() - regDate.getFullYear();
+
+  if (yearDiff === 0) {
+    const monthDiff = today.getMonth() - regDate.getMonth();
+    return monthDiff <= 0
+      ? "New Property"
+      : `${monthDiff} Month${monthDiff > 1 ? "s" : ""}`;
+  }
+
+  return `${yearDiff} Year${yearDiff > 1 ? "s" : ""}`;
+}
+
+// Document view route
+app.get(
+  "/api/property/:propertyId/document/:docKey/view",
+  enhancedVerifyToken,
+  async (req, res) => {
+    try {
+      const { propertyId, docKey } = req.params;
+
+      const registration = await db
+        .collection("registrationRequests")
+        .find({
+          $or: [
+            {
+              _id: ObjectId.isValid(propertyId)
+                ? new ObjectId(propertyId)
+                : null,
+            },
+            { "propertyInfo.propertyId": propertyId },
+          ],
+        })
+        .sort({ createdAt: -1 })
+        .limit(1)
+        .toArray();
+
+      const latestRegistration = registration[0];
+
+      if (
+        !latestRegistration ||
+        !latestRegistration.documents ||
+        !latestRegistration.documents[docKey]
+      ) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      const documentPath = latestRegistration.documents[docKey];
+
+      // Check if file exists
+      if (!fs.existsSync(documentPath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      // Set proper content type
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${docKey}.pdf"`);
+
+      // Stream the file
+      const fileStream = fs.createReadStream(documentPath);
+      fileStream.pipe(res);
+    } catch (error) {
+      Logger.error("Error viewing document:", error);
+      res.status(500).json({ error: "Failed to view document" });
+    }
+  }
+);
+
+// Document download route
+app.get(
+  "/api/property/:propertyId/document/:docKey/download",
+  enhancedVerifyToken,
+  async (req, res) => {
+    try {
+      const { propertyId, docKey } = req.params;
+
+      const registration = await db
+        .collection("registrationRequests")
+        .find({
+          $or: [
+            {
+              _id: ObjectId.isValid(propertyId)
+                ? new ObjectId(propertyId)
+                : null,
+            },
+            { "propertyInfo.propertyId": propertyId },
+          ],
+        })
+        .sort({ createdAt: -1 })
+        .limit(1)
+        .toArray();
+
+      const latestRegistration = registration[0];
+
+      if (
+        !latestRegistration ||
+        !latestRegistration.documents ||
+        !latestRegistration.documents[docKey]
+      ) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      const documentPath = latestRegistration.documents[docKey];
+
+      // Check if file exists
+      if (!fs.existsSync(documentPath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      // Set download headers
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${docKey}.pdf"`
+      );
+
+      // Stream the file
+      const fileStream = fs.createReadStream(documentPath);
+      fileStream.pipe(res);
+    } catch (error) {
+      Logger.error("Error downloading document:", error);
+      res.status(500).json({ error: "Failed to download document" });
+    }
+  }
+);
+
+// Property details aggregation route
+app.get("/api/property/details/:id", enhancedVerifyToken, async (req, res) => {
+  try {
+    const propertyId = req.params.id;
+    Logger.info("Fetching aggregated property details for ID:", propertyId);
+
+    const getLatestTransactionHash = (blockchainData) => {
+      if (!blockchainData.transactions || !blockchainData.transactions.length)
+        return "Not available";
+      return (
+        blockchainData.transactions[blockchainData.transactions.length - 1]
+          .transactionHash || "Not available"
+      );
+    };
+
+    // 1. Fetch blockchain verification and location data
+    const blockchainData = await db
+      .collection("blockchainTxns")
+      .find({
+        $or: [
+          {
+            _id: ObjectId.isValid(propertyId) ? new ObjectId(propertyId) : null,
+          },
+          { propertyId: propertyId },
+          { "propertyInfo.propertyId": propertyId },
+        ],
+      })
+      .sort({ createdAt: -1, _id: -1 }) // Sort by createdAt desc, then _id desc
+      .limit(1)
+      .toArray();
+
+    const latestBlockchainData = blockchainData[0] || {};
+
+    // 2. Fetch property registration details
+    const registrationData = await db
+      .collection("registrationRequests")
+      .find({
+        $or: [
+          {
+            _id: ObjectId.isValid(propertyId) ? new ObjectId(propertyId) : null,
+          },
+          { "propertyInfo.propertyId": propertyId },
+        ],
+      })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(1)
+      .toArray();
+
+    const latestRegistration = registrationData[0] || {};
+
+    // If no data found in either collection
+    if (!latestBlockchainData && !latestRegistration) {
+      Logger.error("No property found with ID:", propertyId);
+      return res.status(404).json({
+        error: "Property not found",
+        propertyId: propertyId,
+      });
+    }
+
+    // Format the response
+    const formattedResponse = {
+      // Section 1: Basic Info and Verification
+      propertyName:
+        latestRegistration.propertyInfo?.propertyName || "Property Details",
+      locality:
+        latestBlockchainData.locality ||
+        latestRegistration.propertyInfo?.locality ||
+        "Location not specified",
+      registryId:
+        latestRegistration.propertyInfo?.registryId ||
+        "Registry ID not available",
+      isVerified: latestBlockchainData.isVerified || false,
+      propertyType:
+        latestRegistration.propertyInfo?.propertyType ||
+        latestBlockchainData.propertyType ||
+        "Property Type not specified",
+
+      // Section 2: Property Details
+      propertyDetails: {
+        propertyType:
+          latestRegistration.propertyInfo?.propertyType || "Not specified",
+        builtUpArea:
+          latestRegistration.propertyInfo?.builtUpArea || "Not specified",
+        landArea: latestRegistration.propertyInfo?.landArea || "Not specified",
+        registrationDate: latestRegistration.createdAt || new Date(),
+        marketValue:
+          latestRegistration.propertyInfo?.marketValue || "Not specified",
+        propertyAge:
+          calculatePropertyAge(latestRegistration.createdAt) || "Not specified",
+      },
+
+      // Section 3: Blockchain Verification
+      blockchainVerification: {
+        blockchainId:
+          latestBlockchainData.currentBlockchainId ||
+          latestBlockchainData.blockchainId ||
+          "Not available",
+        transactionHash:
+          getLatestTransactionHash(latestBlockchainData) || "Not available",
+        verificationStatus: latestBlockchainData.isVerified
+          ? "Verified and Active on Ethereum Mainnet"
+          : "Pending Verification",
+      },
+
+      // Section 4: Property Documents
+      documents: latestRegistration.documents
+        ? {
+            saleDeed: {
+              exists: !!latestRegistration.documents.saleDeed,
+              lastUpdated:
+                latestRegistration.lastModified || latestRegistration.createdAt,
+            },
+            taxReceipts: {
+              exists: !!latestRegistration.documents.taxReceipts,
+              lastUpdated:
+                latestRegistration.lastModified || latestRegistration.createdAt,
+            },
+            buildingPlan: {
+              exists: !!latestRegistration.documents.buildingPlan,
+              lastUpdated:
+                latestRegistration.lastModified || latestRegistration.createdAt,
+            },
+          }
+        : {},
+    };
+
+    Logger.success("Successfully aggregated property data for:", propertyId);
+    res.json({
+      success: true,
+      data: formattedResponse,
+    });
+  } catch (error) {
+    Logger.error("Error fetching aggregated property data:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch property data",
       details:
         process.env.NODE_ENV === "development" ? error.message : undefined,
     });
@@ -1938,6 +2213,608 @@ app.get("/api/list/document", enhancedVerifyToken, async (req, res) => {
       details:
         process.env.NODE_ENV === "development" ? error.message : undefined,
     });
+  }
+});
+
+// Single document details route
+app.get("/api/document/:requestId", enhancedVerifyToken, async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const userEmail = req.user.email;
+    Logger.info(`Fetching document details for requestId: ${requestId}`);
+
+    // First check in blockchainTxns
+    const blockchainDoc = await db.collection("blockchainTxns").findOne({
+      requestId: requestId,
+      owner: userEmail,
+      type: "DOCUMENT_VERIFICATION",
+    });
+
+    // Also get the verification request
+    const verificationRequest = await db
+      .collection("verificationRequests")
+      .findOne({
+        requestId: requestId,
+        userId: userEmail,
+      });
+
+    if (!verificationRequest) {
+      return res.status(404).json({
+        success: false,
+        error: "Document not found",
+      });
+    }
+
+    // Combine data from both sources
+    const documentData = {
+      requestId: requestId,
+      documentType:
+        verificationRequest.personalInfo?.documentType || "Document",
+      submissionDate: verificationRequest.submissionDate,
+      verificationDate: blockchainDoc?.validTill,
+      blockchainId: blockchainDoc?.currentBlockchainId,
+      transactionHash:
+        blockchainDoc?.transactions?.[blockchainDoc.transactions.length - 1]
+          ?.transactionHash,
+      isVerified: blockchainDoc?.isVerified || false,
+      status: blockchainDoc?.status || verificationRequest.status,
+      documentPath: verificationRequest.documents?.document1?.path,
+    };
+
+    res.json({
+      success: true,
+      data: documentData,
+    });
+  } catch (error) {
+    Logger.error("Error fetching document details:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch document details",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Document preview route
+app.get(
+  "/api/document/:requestId/preview",
+  enhancedVerifyToken,
+  async (req, res) => {
+    try {
+      const { requestId } = req.params;
+      const userEmail = req.user.email;
+
+      const verificationRequest = await db
+        .collection("verificationRequests")
+        .findOne({
+          requestId: requestId,
+          userId: userEmail,
+        });
+
+      if (
+        !verificationRequest ||
+        !verificationRequest.documents?.document1?.path
+      ) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      const filePath = verificationRequest.documents.document1.path;
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${
+          verificationRequest.personalInfo?.documentType || "document"
+        }.pdf"`
+      );
+
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+    } catch (error) {
+      Logger.error("Error previewing document:", error);
+      res.status(500).json({ error: "Failed to preview document" });
+    }
+  }
+);
+
+// Document download route
+app.get(
+  "/api/document/:requestId/download",
+  enhancedVerifyToken,
+  async (req, res) => {
+    try {
+      const { requestId } = req.params;
+      const userEmail = req.user.email;
+
+      const verificationRequest = await db
+        .collection("verificationRequests")
+        .findOne({
+          requestId: requestId,
+          userId: userEmail,
+        });
+
+      if (
+        !verificationRequest ||
+        !verificationRequest.documents?.document1?.path
+      ) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      const filePath = verificationRequest.documents.document1.path;
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${
+          verificationRequest.personalInfo?.documentType || "document"
+        }.pdf"`
+      );
+
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+    } catch (error) {
+      Logger.error("Error downloading document:", error);
+      res.status(500).json({ error: "Failed to download document" });
+    }
+  }
+);
+
+// Government Dashboard
+
+// Get dashboard metrics
+app.get("/api/metrics", async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [
+      registrationRequests,
+      transferRequests,
+      completedToday,
+      latestActivity,
+    ] = await Promise.all([
+      // Get registration requests
+      db
+        .collection("registrationRequests")
+        .aggregate([
+          { $match: { status: "pending" } },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              urgent: {
+                $sum: { $cond: [{ $eq: ["$priority", "urgent"] }, 1, 0] },
+              },
+            },
+          },
+        ])
+        .toArray(),
+
+      // Get transfer requests
+      db
+        .collection("transferRequests")
+        .aggregate([
+          { $match: { status: "pending" } },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              pendingApproval: {
+                $sum: {
+                  $cond: [{ $eq: ["$approvalStatus", "pending"] }, 1, 0],
+                },
+              },
+            },
+          },
+        ])
+        .toArray(),
+
+      // Get completed today
+      db.collection("registrationRequests").countDocuments({
+        status: "completed",
+        completedAt: { $gte: today },
+      }),
+
+      // Get latest completed activity
+      db
+        .collection("registrationRequests")
+        .find({ status: "completed" })
+        .sort({ completedAt: -1 })
+        .limit(1)
+        .toArray(),
+    ]);
+
+    // Store metrics in history
+    await db.collection("metricsHistory").insertOne({
+      timestamp: new Date(),
+      pendingRegistrations: registrationRequests[0]?.total || 0,
+      urgentRegistrations: registrationRequests[0]?.urgent || 0,
+      pendingTransfers: transferRequests[0]?.total || 0,
+      pendingApprovals: transferRequests[0]?.pendingApproval || 0,
+      completedToday: completedToday,
+      lastCompletedAt: latestActivity[0]?.completedAt,
+    });
+
+    res.json({
+      pendingCount: registrationRequests[0]?.total || 0,
+      urgentCount: registrationRequests[0]?.urgent || 0,
+      transferCount: transferRequests[0]?.total || 0,
+      pendingApprovalCount: transferRequests[0]?.pendingApproval || 0,
+      completedCount: completedToday,
+      lastCompletedTime: latestActivity[0]?.completedAt,
+    });
+  } catch (error) {
+    Logger.error("Error fetching metrics:", error);
+    res.status(500).json({ error: "Failed to fetch metrics" });
+  }
+});
+
+// Get pending documents with blockchain details
+app.get("/api/pending-requests", enhancedVerifyToken, async (req, res) => {
+  try {
+    const [registrations, transfers] = await Promise.all([
+      // Fetch pending registrations
+      db
+        .collection("registrationRequests")
+        .aggregate([
+          { $match: { status: "pending" } },
+          {
+            $lookup: {
+              from: "blockchainTxns",
+              let: { propertyId: "$propertyInfo.propertyId" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ["$propertyId", "$$propertyId"] },
+                  },
+                },
+              ],
+              as: "blockchainDetails",
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              type: { $literal: "registration" },
+              propertyId: "$propertyInfo.propertyId",
+              propertyType: "$propertyInfo.propertyType",
+              propertyName: "$propertyInfo.propertyName",
+              street: "$propertyInfo.street",
+              locality: "$propertyInfo.locality",
+              city: "$propertyInfo.city",
+              state: "$propertyInfo.state",
+              pincode: "$propertyInfo.pincode",
+              landArea: "$propertyInfo.landArea",
+              builtUpArea: "$propertyInfo.builtUpArea",
+              classification: "$propertyInfo.classification",
+              transactionType: "$propertyInfo.transactionType",
+              purchaseValue: "$propertyInfo.purchaseValue",
+              stampDuty: "$propertyInfo.stampDuty",
+              plotNumber: "$propertyInfo.plotNumber",
+              documentPath: "$documents.saleDeed",
+              status: 1,
+              priority: 1,
+              createdAt: 1,
+              ownerInfo: 1,
+              documents: 1,
+              blockchainInfo: {
+                $cond: {
+                  if: { $gt: [{ $size: "$blockchainDetails" }, 0] },
+                  then: {
+                    $let: {
+                      vars: {
+                        lastTx: {
+                          $arrayElemAt: [
+                            {
+                              $slice: [
+                                {
+                                  $arrayElemAt: [
+                                    "$blockchainDetails.transactions",
+                                    0,
+                                  ],
+                                },
+                                -1,
+                              ],
+                            },
+                            0,
+                          ],
+                        },
+                      },
+                      in: {
+                        transactionHash: "$$lastTx.transactionHash",
+                        blockNumber: "$$lastTx.blockNumber",
+                        gasUsed: "$$lastTx.gasUsed",
+                        contractAddress: {
+                          $arrayElemAt: [
+                            "$blockchainDetails.currentBlockchainId",
+                            0,
+                          ],
+                        },
+                        timestamp: "$$lastTx.timestamp",
+                        isVerified: {
+                          $arrayElemAt: ["$blockchainDetails.isVerified", 0],
+                        },
+                      },
+                    },
+                  },
+                  else: {
+                    transactionHash: "$propertyInfo.transactionHash",
+                    blockNumber: null,
+                    gasUsed: null,
+                    contractAddress: "$propertyInfo.blockchainId",
+                    timestamp: "$createdAt",
+                    isVerified: false,
+                  },
+                },
+              },
+            },
+          },
+        ])
+        .toArray(),
+
+      // Fetch pending transfers
+      db
+        .collection("transferRequests")
+        .aggregate([
+          { $match: { status: "pending" } },
+          {
+            $lookup: {
+              from: "blockchainTxns",
+              let: { propertyId: "$propertyInfo.propertyId" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ["$propertyId", "$$propertyId"] },
+                  },
+                },
+              ],
+              as: "blockchainDetails",
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              type: { $literal: "transfer" },
+              propertyId: "$propertyInfo.propertyId",
+              propertyType: "$propertyInfo.propertyType",
+              propertyName: "$propertyInfo.propertyName",
+              street: "$propertyInfo.street",
+              locality: "$propertyInfo.locality",
+              city: "$propertyInfo.city",
+              state: "$propertyInfo.state",
+              pincode: "$propertyInfo.pincode",
+              landArea: "$propertyInfo.landArea",
+              builtUpArea: "$propertyInfo.builtUpArea",
+              classification: "$propertyInfo.classification",
+              transactionType: "$propertyInfo.transactionType",
+              purchaseValue: "$propertyInfo.purchaseValue",
+              stampDuty: "$propertyInfo.stampDuty",
+              plotNumber: "$propertyInfo.plotNumber",
+              documentPath: "$documents.transferDeed",
+              status: 1,
+              approvalStatus: 1,
+              createdAt: 1,
+              ownerInfo: "$currentOwnerInfo", // Note: different field name for transfers
+              documents: 1,
+              blockchainInfo: {
+                $cond: {
+                  if: { $gt: [{ $size: "$blockchainDetails" }, 0] },
+                  then: {
+                    $let: {
+                      vars: {
+                        lastTx: {
+                          $arrayElemAt: [
+                            {
+                              $slice: [
+                                {
+                                  $arrayElemAt: [
+                                    "$blockchainDetails.transactions",
+                                    0,
+                                  ],
+                                },
+                                -1,
+                              ],
+                            },
+                            0,
+                          ],
+                        },
+                      },
+                      in: {
+                        transactionHash: "$$lastTx.transactionHash",
+                        blockNumber: "$$lastTx.blockNumber",
+                        gasUsed: "$$lastTx.gasUsed",
+                        contractAddress: {
+                          $arrayElemAt: [
+                            "$blockchainDetails.currentBlockchainId",
+                            0,
+                          ],
+                        },
+                        timestamp: "$$lastTx.timestamp",
+                        isVerified: {
+                          $arrayElemAt: ["$blockchainDetails.isVerified", 0],
+                        },
+                      },
+                    },
+                  },
+                  else: {
+                    transactionHash: "$blockchainInfo.transactionHash",
+                    blockNumber: null,
+                    gasUsed: null,
+                    contractAddress: "$blockchainInfo.blockchainId",
+                    timestamp: "$createdAt",
+                    isVerified: false,
+                  },
+                },
+              },
+            },
+          },
+        ])
+        .toArray(),
+    ]);
+
+    const requests = [...registrations, ...transfers].map((request) => {
+      // Format the location string
+      const location = [
+        request.street,
+        request.locality,
+        request.city,
+        request.state,
+        request.pincode,
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      // Get the latest blockchain transaction details
+      const blockchainDetails = {
+        transactionHash: request.blockchainInfo?.transactionHash || null,
+        blockNumber: request.blockchainInfo?.blockNumber || null,
+        gasUsed: request.blockchainInfo?.gasUsed || null,
+        verificationStatus: request.blockchainInfo?.isVerified
+          ? "Verified"
+          : "Pending",
+        timestamp: request.blockchainInfo?.timestamp || null,
+        contractAddress: request.blockchainInfo?.contractAddress || null,
+      };
+
+      // Log the blockchain details for debugging
+      Logger.info(
+        `Blockchain details for property ${request.propertyId}:`,
+        blockchainDetails
+      );
+
+      return {
+        _id: request._id,
+        type: request.type,
+        propertyId: request.propertyId || "Unknown",
+        propertyType: request.propertyType || "Not specified",
+        propertyName: request.propertyName || "Not specified",
+        location: location || "Not specified",
+        landArea: request.landArea || "Not specified",
+        builtUpArea: request.builtUpArea || "Not specified",
+        classification: request.classification || "Not specified",
+        transactionType: request.transactionType || "Not specified",
+        purchaseValue: request.purchaseValue || "Not specified",
+        stampDuty: request.stampDuty || "Not specified",
+        plotNumber: request.plotNumber || "Not specified",
+        status: request.status || "pending",
+        priority: request.priority || request.approvalStatus || "normal",
+        createdAt: request.createdAt || new Date(),
+        documentPath: request.documentPath,
+        ownerInfo: {
+          name: request.ownerInfo
+            ? `${request.ownerInfo.firstName || ""} ${
+                request.ownerInfo.lastName || ""
+              }`.trim() || "Unknown"
+            : "Unknown",
+          email: request.ownerInfo?.email || "Not provided",
+          idType: request.ownerInfo?.idType || "Not specified",
+          idNumber: request.ownerInfo?.idNumber || "Not provided",
+        },
+        documents: request.documents || {},
+        blockchainDetails,
+      };
+    });
+
+    // Log the total number of requests and a sample for debugging
+    Logger.info(
+      `Found ${requests.length} total requests (${registrations.length} registrations, ${transfers.length} transfers)`
+    );
+    if (requests.length > 0) {
+      Logger.info("Sample request data:", {
+        propertyId: requests[0].propertyId,
+        blockchainDetails: requests[0].blockchainDetails,
+      });
+    }
+
+    res.json({
+      requests,
+      total: requests.length,
+    });
+  } catch (error) {
+    Logger.error("Error fetching pending requests:", error);
+    res.status(500).json({
+      error: "Failed to fetch pending requests",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Complete document verification
+app.post("/api/complete-verification", async (req, res) => {
+  try {
+    const { documentId, type, verificationNotes } = req.body;
+    const collection =
+      type === "registration" ? "registrationRequests" : "transferRequests";
+
+    // Update document status
+    const result = await db.collection(collection).findOneAndUpdate(
+      { _id: new ObjectId(documentId) },
+      {
+        $set: {
+          status: "completed",
+          completedAt: new Date(),
+          completedBy: req.user.email,
+          verificationNotes,
+          lastModified: new Date(),
+        },
+      },
+      { returnDocument: "after" }
+    );
+
+    if (!result.value) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    // Update blockchain status
+    const propertyId = result.value.propertyInfo.propertyId;
+
+    const blockchainUpdate = await db.collection("blockchainTxns").updateOne(
+      { propertyId },
+      {
+        $set: {
+          isVerified: true,
+          verifiedAt: new Date(),
+          verifiedBy: req.user.email,
+        },
+        $push: {
+          verificationHistory: {
+            timestamp: new Date(),
+            verifier: req.user.email,
+            notes: verificationNotes,
+          },
+        },
+      }
+    );
+
+    // Add to activity log
+    await db.collection("auditLog").insertOne({
+      action: "DOCUMENT_VERIFIED",
+      documentId: result.value._id,
+      propertyId,
+      verifier: req.user.email,
+      timestamp: new Date(),
+      notes: verificationNotes,
+      type,
+    });
+
+    res.json({
+      message: "Document verification completed successfully",
+      documentId: result.value._id,
+      blockchainUpdated: blockchainUpdate.modifiedCount > 0,
+    });
+  } catch (error) {
+    Logger.error("Error completing verification:", error);
+    res.status(500).json({ error: "Failed to complete verification" });
   }
 });
 

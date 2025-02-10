@@ -154,10 +154,10 @@ async function fetchVerifiedProperties() {
         <h3>${property.propertyName || "Property"}</h3>
         <p>Location: ${property.location || "Location not specified"}</p>
         <div class="blockchain-info">
-          Contract: ${property.blockchainId || "Processing..."}
+          Blockchain ID: ${property.blockchainId || "Processing..."}
         </div>
         <button onclick="window.location='./viewdetail.html?id=${
-          property._id
+          property.propertyId
         }'">
           View Details
         </button>
@@ -261,7 +261,7 @@ function createDocumentCard(doc) {
         doc.verificationDate
       ).toLocaleDateString()}</p>
       <div class="blockchain-info">
-        Contract: ${doc.blockchainId || "Processing..."}
+        Blockchain ID: ${doc.blockchainId || "Processing..."}
       </div>
     </div>
     <div class="document-actions">
@@ -272,7 +272,7 @@ function createDocumentCard(doc) {
   // Add event listener to the view button
   const viewButton = card.querySelector(".action-button");
   viewButton.addEventListener("click", () => {
-    window.location.href = `./viewdoc.html?id=${doc._id}`;
+    window.location.href = `./viewdoc.html?id=${doc.requestId}`;
   });
 
   return card;
@@ -289,7 +289,7 @@ function createPropertyCard(property) {
             <span class="verified-badge">Verified</span>
         </p>
         <div class="blockchain-info">
-            Contract: ${property.blockchainId || "Processing..."}
+            Blockchain ID: ${property.blockchainId || "Processing..."}
         </div>
         <button onclick="window.location='./viewdetail.html?id=${
           property._id

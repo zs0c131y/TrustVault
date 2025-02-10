@@ -1,125 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TrustVault - Luxury Villa Details</title>
-    <link rel="stylesheet" href="./viewdetail.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Questrial&display=swap" rel="stylesheet">
-</head>
-<body>
-    <div class="property-container">
-        <div class="navigation">
-            <button class="back-button" onclick="goBack()">← Back to Profile</button>
-        </div>
-
-        <div class="property-header">
-            <h1>Luxury Villa</h1>
-            <p>Koramangala, Bengaluru</p>
-            <div class="property-status">
-                <span class="status-badge">Registry: BLR-KOR-2024-001</span>
-                <span class="status-badge">Verified on Blockchain</span>
-                <span class="status-badge">Residential Property</span>
-            </div>
-        </div>
-
-        <div class="gallery">
-            <img src="./assets/defaultlandimage.png" alt="Property View 1" class="gallery-img">
-            <img src="./assets/defaultlandimage.png" alt="Property View 2" class="gallery-img">
-            <img src="./assets/defaultlandimage.png" alt="Property View 3" class="gallery-img">
-        </div>
-
-        <div class="section">
-            <h2>Property Details</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <label>Property Type</label>
-                    <p>Residential Villa</p>
-                </div>
-                <div class="info-item">
-                    <label>Built-up Area</label>
-                    <p>4,500 sq ft</p>
-                </div>
-                <div class="info-item">
-                    <label>Land Area</label>
-                    <p>6,000 sq ft</p>
-                </div>
-                <div class="info-item">
-                    <label>Registration Date</label>
-                    <p>March 15, 2024</p>
-                </div>
-                <div class="info-item">
-                    <label>Market Value</label>
-                    <p>₹4.5 Cr</p>
-                </div>
-                <div class="info-item">
-                    <label>Property Age</label>
-                    <p>2 Years</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Blockchain Verification</h2>
-            <div class="info-item">
-                <label>Smart Contract Address</label>
-                <div class="blockchain-info">0x742d35Cc6634C0532925a3b844Bc454e4438f44e</div>
-            </div>
-            <div class="info-item">
-                <label>Latest Transaction Hash</label>
-                <div class="blockchain-info">0xf7eB7637825712123798172340789134789124789</div>
-            </div>
-            <div class="info-item">
-                <label>Verification Status</label>
-                <div class="blockchain-info">Verified and Active on Ethereum Mainnet</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Property Documents</h2>
-            <div class="document-item">
-                <div class="document-info">
-                    <h3>Sale Deed</h3>
-                    <small>Verified on Mar 15, 2024</small>
-                </div>
-                <div class="document-actions">
-                    <button class="action-button">View</button>
-                    <button class="action-button">Download</button>
-                </div>
-            </div>
-            <div class="document-item">
-                <div class="document-info">
-                    <h3>Property Tax Records</h3>
-                    <small>Last Updated: Mar 15, 2024</small>
-                </div>
-                <div class="document-actions">
-                    <button class="action-button">View</button>
-                    <button class="action-button">Download</button>
-                </div>
-            </div>
-            <div class="document-item">
-                <div class="document-info">
-                    <h3>Building Approval Plan</h3>
-                    <small>Verified on Mar 15, 2024</small>
-                </div>
-                <div class="document-actions">
-                    <button class="action-button">View</button>
-                    <button class="action-button">Download</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Location</h2>
-            <p>1st Block, Koramangala, Bengaluru - 560034</p>
-            <div class="map-placeholder">
-                Interactive Map View
-            </div>
-        </div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrustVault - Property Details</title>
+    <link rel="stylesheet" href="./viewdetail.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Questrial&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="property-container" id="propertyContent">
+      <div class="loading">Loading property details...</div>
     </div>
 
-    <script src="./viewdetail.js"></script>
-</body>
+    <script type="module" src="./viewdetail.js"></script>
+  </body>
 </html>

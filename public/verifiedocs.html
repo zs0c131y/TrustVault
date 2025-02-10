@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrustVault - Document Center</title>
+    <link rel="stylesheet" href="./viewdoc.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Questrial&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
+    <div class="document-container">
+      <div class="navigation">
+        <button class="back-button" onclick="goBack()">
+          ← Back to Profile
+        </button>
+        <button class="upload-button">+ Upload New Document</button>
+      </div>
+
+      <div class="header">
+        <h1>Document Center</h1>
+        <p>Manage and verify your property documents</p>
+      </div>
+
+      <div class="search-bar">
+        <input
+          type="text"
+          class="search-input"
+          placeholder="Search documents..."
+        />
+      </div>
+
+      <div class="filters">
+        <button class="filter-button active">All Documents</button>
+        <button class="filter-button">Sale Deeds</button>
+        <button class="filter-button">ID's</button>
+        <button class="filter-button">Approvals</button>
+        <button class="filter-button">Certificates</button>
+      </div>
+
+      <div class="document-grid">
+        <!-- Sale Deed -->
+        <div class="document-card">
+          <div class="document-status">Verified</div>
+          <div class="document-preview">
+            <img src="/api/placeholder/100/100" alt="Document Preview" />
+          </div>
+          <div class="document-info">
+            <span class="document-type">Sale Deed</span>
+            <h3 class="document-title">Luxury Villa - Sale Deed</h3>
+            <p class="document-meta">Uploaded: March 15, 2024</p>
+            <div class="blockchain-info">IPFS: QmW2WQi7j6c7UgJTarA...</div>
+            <div class="document-actions">
+              <button class="action-button">Preview</button>
+              <button class="action-button primary">Download</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tax Record -->
+        <div class="document-card">
+          <div class="document-status">Verified</div>
+          <div class="document-preview">
+            <img src="/api/placeholder/100/100" alt="Document Preview" />
+          </div>
+          <div class="document-info">
+            <span class="document-type">Tax Record</span>
+            <h3 class="document-title">Property Tax 2024</h3>
+            <p class="document-meta">Uploaded: March 10, 2024</p>
+            <div class="blockchain-info">IPFS: QmT1WQi7j6c7UgJTarB...</div>
+            <div class="document-actions">
+              <button class="action-button">Preview</button>
+              <button class="action-button primary">Download</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Building Approval -->
+        <div class="document-card">
+          <div class="document-status">Verified</div>
+          <div class="document-preview">
+            <img src="/api/placeholder/100/100" alt="Document Preview" />
+          </div>
+          <div class="document-info">
+            <span class="document-type">Approval</span>
+            <h3 class="document-title">Building Approval Plan</h3>
+            <p class="document-meta">Uploaded: March 5, 2024</p>
+            <div class="blockchain-info">IPFS: QmR3WQi7j6c7UgJTarC...</div>
+            <div class="document-actions">
+              <button class="action-button">Preview</button>
+              <button class="action-button primary">Download</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Commercial Property -->
+        <div class="document-card">
+          <div class="document-status status-pending">Pending</div>
+          <div class="document-preview">
+            <img src="/api/placeholder/100/100" alt="Document Preview" />
+          </div>
+          <div class="document-info">
+            <span class="document-type">Commercial</span>
+            <h3 class="document-title">Usage Permission</h3>
+            <p class="document-meta">Uploaded: March 18, 2024</p>
+            <div class="blockchain-info">Verification in progress...</div>
+            <div class="document-actions">
+              <button class="action-button">Preview</button>
+              <button class="action-button primary">Track Status</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./viewdoc.js"></script>
+  </body>
+</html>

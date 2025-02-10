@@ -506,14 +506,7 @@ function displayBlockchainData(txHash, propertyData, transactionData, events) {
         }
       </div>
     </div>
-    <div class="data-item">
-      <div class="data-label">Gas Used</div>
-      <div class="data-value">${
-        transactionData.gasUsed
-          ? `${formatValue(transactionData.gasUsed)} wei`
-          : "N/A"
-      }</div>
-    </div>
+   
     <div class="data-item">
       <div class="data-label">Value</div>
       <div class="data-value">${

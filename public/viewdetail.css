@@ -24,6 +24,26 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.loading {
+  text-align: center;
+  padding: 50px;
+  color: #3c82f6;
+  font-size: 1.2em;
+  background: rgba(24, 28, 36, 0.6);
+  border-radius: 12px;
+  border: 1px solid rgba(60, 130, 246, 0.2);
+}
+
+.error {
+  text-align: center;
+  padding: 50px;
+  color: #ef4444;
+  font-size: 1.2em;
+  background: rgba(24, 28, 36, 0.6);
+  border-radius: 12px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
 .navigation {
   display: flex;
   align-items: center;
@@ -78,6 +98,12 @@ body {
   border-radius: 20px;
   font-size: 0.9em;
   border: 1px solid rgba(60, 130, 246, 0.2);
+}
+
+.verified-badge {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.2);
 }
 
 .gallery {
@@ -162,6 +188,7 @@ body {
   font-size: 0.9em;
   color: #3c82f6;
   position: relative;
+  cursor: pointer;
 }
 
 .blockchain-info:hover::before {
@@ -174,7 +201,6 @@ body {
   padding: 4px 8px;
   border-radius: 6px;
   font-size: 0.8em;
-  cursor: pointer;
 }
 
 .document-item {
