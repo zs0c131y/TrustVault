@@ -47,7 +47,7 @@
           <div class="card card-clickable" onclick="showModal('pendingModal')">
             <div class="metric">
               <div class="metric-label">
-                <i class="fas fa-clock"></i> Pending Verifications
+                <i class="fas fa-clock"></i> Registration Verifications
               </div>
               <div class="metric-value text-red">12</div>
               <div class="metric-subtext">4 urgent</div>
@@ -68,11 +68,11 @@
           <!-- Completed Today -->
           <div
             class="card card-clickable"
-            onclick="showModal('completedModal')"
+            onclick="showModal('verificationModal')"
           >
             <div class="metric">
               <div class="metric-label">
-                <i class="fas fa-check-circle"></i> Completed Today
+                <i class="fas fa-clock"></i> Document Verifications
               </div>
               <div class="metric-value text-green">25</div>
               <div class="metric-subtext">Last: 5 mins ago</div>
@@ -133,7 +133,7 @@
       </div>
     </div>
 
-    <!-- Pending Documents Modal -->
+    <!-- Pending Registrations Modal -->
     <div id="pendingModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
@@ -179,25 +179,27 @@
       </div>
     </div>
 
-    <!-- Completed Documents Modal -->
-    <div id="completedModal" class="modal">
+    <!-- Pending Documents Modal -->
+    <div id="verificationModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
-          <h2><i class="fas fa-check-circle"></i> Completed Documents</h2>
-          <button class="close-btn" onclick="closeModal('completedModal')">
+          <h2><i class="fas fa-file-alt"></i> Document Verifications</h2>
+          <button class="close-btn" onclick="closeModal('verificationModal')">
             &times;
           </button>
         </div>
-        <div class="search-bar">
-          <i class="fas fa-search"></i>
-          <input
-            type="text"
-            placeholder="Search completed..."
-            onkeyup="filterDocuments(this.value, 'completed')"
-          />
-        </div>
-        <div id="completedList" class="document-list">
-          <!-- Populated by JavaScript -->
+        <div class="modal-body">
+          <div class="search-bar">
+            <i class="fas fa-search"></i>
+            <input
+              type="text"
+              placeholder="Search verifications..."
+              onkeyup="filterDocuments(this.value, 'verification')"
+            />
+          </div>
+          <div id="verificationList" class="document-list">
+            <!-- Table will be populated here by JavaScript -->
+          </div>
         </div>
       </div>
     </div>

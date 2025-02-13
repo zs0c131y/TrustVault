@@ -33,7 +33,7 @@ async function fetchMetrics() {
 function updateMetricsDisplay(data) {
   console.log("Updating metrics display:", data);
 
-  // Pending Verifications
+  // Pending Verifications (Registration)
   const pendingValue = document.querySelector(".metric-value.text-red");
   if (pendingValue) {
     pendingValue.textContent = data?.pendingCount || "0";
@@ -57,31 +57,145 @@ function updateMetricsDisplay(data) {
     } pending approval`;
   }
 
-  // Completed Today
-  const completedValue = document.querySelector(".metric-value.text-green");
-  if (completedValue) {
-    completedValue.textContent = data?.completedCount || "0";
+  // Document Verifications
+  const verificationValue = document.querySelector(".metric-value.text-green");
+  if (verificationValue) {
+    verificationValue.textContent = data?.verificationCount || "0";
   }
-  const completedSubtext = document.querySelector(
+  const verificationSubtext = document.querySelector(
     ".card:nth-child(3) .metric-subtext"
   );
-  if (completedSubtext) {
-    const lastTime = data?.lastCompletedTime
-      ? new Date(data.lastCompletedTime).toLocaleTimeString()
-      : "N/A";
-    completedSubtext.textContent = `Last: ${lastTime}`;
+  if (verificationSubtext) {
+    verificationSubtext.textContent = `${data?.verifiedCount || "0"} verified`;
   }
+}
+
+// Add this new function to fetch verification documents
+async function fetchVerificationDocuments() {
+  try {
+    const response = await fetch("/api/pending-documents", {
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("Fetched verification documents:", data);
+    return data.success ? data.documents : [];
+  } catch (error) {
+    console.error("Error fetching verification documents:", error);
+    showToast("Failed to load verification documents", "error");
+    return [];
+  }
+}
+
+// Update the verification documents display
+async function showVerificationList() {
+  try {
+    const verificationDocs = await fetchVerificationDocuments();
+    const list = document.getElementById("verificationList");
+    if (!list) {
+      console.error("Verification list container not found");
+      return;
+    }
+
+    list.innerHTML = '<p class="text-center p-4">Loading documents...</p>';
+    list.innerHTML = generateVerificationTable(verificationDocs);
+  } catch (error) {
+    console.error("Error showing verification list:", error);
+    const list = document.getElementById("verificationList");
+    if (list) {
+      list.innerHTML =
+        '<p class="text-center p-4 text-red">Error loading documents</p>';
+    }
+  }
+}
+
+// Update the table generation function to match other tables
+function generateVerificationTable(docs) {
+  if (!docs || !docs.length) {
+    return '<p class="text-center p-4">No verification documents found</p>';
+  }
+
+  return `
+      <div class="table-container">
+          <table class="table">
+              <thead>
+                  <tr>
+                      <th>Request ID</th>
+                      <th>Document Type</th>
+                      <th>Submission Date</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${docs
+                    .map(
+                      (doc) => `
+                      <tr>
+                          <td>${doc.requestId}</td>
+                          <td>${doc.documentType
+                            ?.replace(/-/g, " ")
+                            .replace(/\b\w/g, (l) => l.toUpperCase())}</td>
+                          <td>${new Date(
+                            doc.submissionDate
+                          ).toLocaleDateString()}</td>
+                          <td>
+                              <span class="status status-${
+                                doc.isVerified ? "verified" : "pending"
+                              }">
+                                  ${doc.isVerified ? "Verified" : "Pending"}
+                              </span>
+                          </td>
+                          <td>
+                              <button class="btn-primary" onclick="showVerificationDetails('${
+                                doc.requestId
+                              }', 'document')">
+                                  View & Verify
+                              </button>
+                          </td>
+                      </tr>
+                  `
+                    )
+                    .join("")}
+              </tbody>
+          </table>
+      </div>
+  `;
 }
 
 // Global window functions
 window.showModal = function (modalId) {
-  document.getElementById("modalBackdrop")?.classList.remove("hidden");
+  const modalBackdrop = document.getElementById("modalBackdrop");
   const modal = document.getElementById(modalId);
-  if (modal) {
-    modal.style.display = "block";
-    if (modalId === "pendingModal") showPendingList();
-    if (modalId === "transferModal") showTransferList();
-    if (modalId === "completedModal") showCompletedList();
+
+  if (!modal) {
+    console.error(`Modal with id ${modalId} not found`);
+    return;
+  }
+
+  // Show backdrop
+  if (modalBackdrop) {
+    modalBackdrop.classList.remove("hidden");
+  }
+
+  // Show modal
+  modal.style.display = "block";
+
+  // Load appropriate content
+  if (modalId === "pendingModal") {
+    showPendingList();
+  } else if (modalId === "transferModal") {
+    showTransferList();
+  } else if (modalId === "verificationModal") {
+    showVerificationList();
   }
 };
 
@@ -108,7 +222,6 @@ window.showToast = function (message, type = "success") {
   }, 3000);
 };
 
-// Fetch and display pending documents
 // Fetch and display pending documents
 async function fetchPendingDocuments() {
   try {
@@ -185,99 +298,131 @@ function generateDocumentTable(docs) {
   }
 
   return `
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Type</th>
-                    <th>Date</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${docs
-                  .map(
-                    (doc) => `
-                    <tr>
-                        <td>${doc?.propertyId || "N/A"}</td>
-                        <td>${doc?.type || "Unknown"}</td>
-                        <td>${
-                          doc?.createdAt
-                            ? new Date(doc.createdAt).toLocaleDateString()
-                            : "N/A"
-                        }</td>
-                        <td>
-                            <span class="status status-${
-                              doc?.status || "pending"
-                            }">
-                                ${(doc?.status || "PENDING").toUpperCase()}
-                            </span>
-                        </td>
-                        <td>
-                            <button class="btn-primary" onclick="showVerificationDetails('${
-                              doc?._id
-                            }', '${doc?.type}')">
-                                View & Verify
-                            </button>
-                        </td>
-                    </tr>
-                `
-                  )
-                  .join("")}
-            </tbody>
-        </table>
-    `;
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Property ID</th>
+          <th>Type</th>
+          <th>Date</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${docs
+          .map((doc) => {
+            // Extract propertyId from the document structure
+            const propertyId = doc.propertyId || "N/A";
+
+            return `
+            <tr>
+              <td>${propertyId}</td>
+              <td>${
+                (doc.propertyType || "Unknown").charAt(0).toUpperCase() +
+                (doc.propertyType || "").slice(1)
+              }</td>
+              <td>${
+                doc.createdAt
+                  ? new Date(doc.createdAt).toLocaleDateString()
+                  : "N/A"
+              }</td>
+              <td>
+                <span class="status status-${doc.status || "pending"}">
+                  ${(doc.status || "PENDING").toUpperCase()}
+                </span>
+              </td>
+              <td>
+                <button class="btn-primary" onclick="showVerificationDetails('${propertyId}', '${
+              doc.type
+            }')">
+                  View & Verify
+                </button>
+              </td>
+            </tr>
+          `;
+          })
+          .join("")}
+      </tbody>
+    </table>
+  `;
 }
 
-// Improved verification details display
 // Verification details display
-window.showVerificationDetails = async function (docId, type) {
+window.showVerificationDetails = async function (propertyId, type) {
   try {
-    const response = await fetch(`/api/pending-requests`, {
+    console.log("Showing verification details for property:", {
+      propertyId,
+      type,
+    });
+
+    // Fetch all pending requests
+    const response = await fetch("/api/pending-requests", {
       headers: getAuthHeaders(),
     });
 
     if (!response.ok) {
-      if (response.status === 401) {
-        window.location.href = "/login.html";
-        return;
-      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log("Fetched document data:", data);
 
-    const doc = data.requests.find((req) => req._id === docId);
-    if (!doc) {
-      throw new Error("Document not found");
+    // Find the specific request matching propertyId and type
+    const request = data.requests.find(
+      (req) => req.propertyId === propertyId && req.type === type
+    );
+
+    if (!request) {
+      throw new Error("Property details not found");
     }
 
-    currentVerificationDoc = doc;
-    console.log("Current verification doc:", currentVerificationDoc);
+    // Store the current document
+    currentVerificationDoc = request;
 
-    showModal("propertyVerificationModal");
-    window.switchVerificationTab("details");
+    // Show the modal
+    const modal = document.getElementById("propertyVerificationModal");
+    if (!modal) return;
+
+    // Update modal title and UI based on document type
+    const titleElement = modal.querySelector(".modal-header h2");
+    const tabsElement = modal.querySelector(".tabs");
+    const contentElement = document.getElementById("verificationContent");
+
+    if (!titleElement || !contentElement) return;
+
+    // Determine the verification type and set appropriate title
+    const isPropertyRegistration = type === "registration";
+    const isPropertyTransfer = type === "transfer";
+
+    titleElement.innerHTML = `<i class="fas fa-check-circle"></i> ${
+      isPropertyTransfer ? "Property Transfer" : "Property Registration"
+    } Verification`;
+
+    // Show tabs for property verification
+    if (tabsElement) {
+      tabsElement.style.display = "flex";
+      // Switch to the details tab by default
+      switchVerificationTab("details");
+    }
+
+    // Show the modal
+    modal.style.display = "block";
+    document.getElementById("modalBackdrop")?.classList.remove("hidden");
   } catch (error) {
     console.error("Error showing verification details:", error);
-    showToast("Failed to load document details", "error");
+    showToast("Failed to load property details. Please try again.", "error");
   }
 };
 
-// Tab switching
 window.switchVerificationTab = function (tabName) {
-  if (!currentVerificationDoc) {
-    console.error("No document loaded for verification");
-    return;
-  }
+  if (!currentVerificationDoc) return;
 
   // Update tab styling
   const tabs = document.querySelectorAll(".tab");
   tabs.forEach((tab) => {
-    tab.classList.remove("active");
     if (tab.getAttribute("onclick").includes(tabName)) {
       tab.classList.add("active");
+    } else {
+      tab.classList.remove("active");
     }
   });
 
@@ -285,21 +430,28 @@ window.switchVerificationTab = function (tabName) {
   const content = document.getElementById("verificationContent");
   if (!content) return;
 
-  switch (tabName) {
-    case "details":
-      content.innerHTML = window.generatePropertyDetails(
-        currentVerificationDoc
-      );
-      break;
-    case "owner":
-      content.innerHTML = window.generateOwnerInfo(currentVerificationDoc);
-      break;
-    case "documents":
-      content.innerHTML = window.generateDocumentsList(currentVerificationDoc);
-      break;
-    case "blockchain":
-      content.innerHTML = window.generateBlockchainInfo(currentVerificationDoc);
-      break;
+  try {
+    switch (tabName) {
+      case "details":
+        content.innerHTML = generatePropertyDetails(currentVerificationDoc);
+        break;
+      case "owner":
+        content.innerHTML = generateOwnerInfo(currentVerificationDoc);
+        break;
+      case "documents":
+        content.innerHTML = generateDocumentsList(currentVerificationDoc);
+        break;
+      case "blockchain":
+        content.innerHTML = generateBlockchainInfo(currentVerificationDoc);
+        break;
+      default:
+        content.innerHTML =
+          '<p class="text-center p-4">Tab content not available</p>';
+    }
+  } catch (error) {
+    console.error(`Error generating ${tabName} content:`, error);
+    content.innerHTML =
+      '<p class="text-center p-4 text-red">Error loading content</p>';
   }
 };
 
@@ -506,6 +658,10 @@ window.viewDocument = async function (propertyId, docKey) {
 window.verifyDocument = async function (docId, type) {
   try {
     const notes = document.getElementById("verificationNotes")?.value;
+    if (!notes) {
+      showToast("Please add verification notes", "error");
+      return;
+    }
 
     const response = await fetch("/api/complete-verification", {
       method: "POST",
@@ -578,6 +734,197 @@ window.rejectDocument = async function (docId) {
   }
 };
 
+// Generate document details
+window.generateDocumentDetails = function (doc) {
+  console.log("Generating document details for doc:", doc);
+
+  if (!doc)
+    return '<p class="text-center p-4">No document details available</p>';
+
+  // Format date helper
+  const formatDate = (dateString) => {
+    if (!dateString) return "N/A";
+    return new Date(dateString).toLocaleString();
+  };
+
+  // Get verification step status icon
+  const getStepStatusIcon = (status) => {
+    switch (status) {
+      case "completed":
+        return '<i class="fas fa-check-circle text-green"></i>';
+      case "pending":
+        return '<i class="fas fa-clock text-yellow"></i>';
+      default:
+        return '<i class="fas fa-circle text-gray"></i>';
+    }
+  };
+
+  return `
+      <div class="document-details p-4">
+          <!-- Personal Information Section -->
+          <div class="detail-section mb-6">
+              <h3 class="text-lg font-medium mb-4">Personal Information</h3>
+              <div class="detail-row">
+                  <div class="detail-item">
+                      <label>Name:</label>
+                      <span>${doc.personalInfo.firstName} ${
+    doc.personalInfo.lastName
+  }</span>
+                  </div>
+                  <div class="detail-item">
+                      <label>Email:</label>
+                      <span>${doc.personalInfo.email}</span>
+                  </div>
+              </div>
+              <div class="detail-row">
+                  <div class="detail-item">
+                      <label>Phone:</label>
+                      <span>${doc.personalInfo.phone}</span>
+                  </div>
+                  <div class="detail-item">
+                      <label>ID Number:</label>
+                      <span>${doc.personalInfo.idNumber}</span>
+                  </div>
+              </div>
+              <div class="detail-row">
+                  <div class="detail-item">
+                      <label>Document Type:</label>
+                      <span class="capitalize">${doc.documentType.replace(
+                        /-/g,
+                        " "
+                      )}</span>
+                  </div>
+                  <div class="detail-item">
+                      <label>Submission Date:</label>
+                      <span>${formatDate(doc.submissionDate)}</span>
+                  </div>
+              </div>
+          </div>
+
+          <!-- Verification Progress Section -->
+          <div class="detail-section mb-6">
+              <h3 class="text-lg font-medium mb-4">Verification Progress</h3>
+              <div class="verification-steps">
+                  ${doc.verificationSteps
+                    .map(
+                      (step) => `
+                      <div class="verification-step ${step.status}">
+                          <div class="step-icon">
+                              ${getStepStatusIcon(step.status)}
+                          </div>
+                          <div class="step-details">
+                              <div class="step-name capitalize">${step.step.replace(
+                                /_/g,
+                                " "
+                              )}</div>
+                              <div class="step-timestamp text-gray">
+                                  ${
+                                    step.timestamp
+                                      ? formatDate(step.timestamp)
+                                      : "Pending"
+                                  }
+                              </div>
+                          </div>
+                      </div>
+                  `
+                    )
+                    .join("")}
+              </div>
+          </div>
+
+          <!-- Submitted Documents Section -->
+          <div class="detail-section mb-6">
+              <h3 class="text-lg font-medium mb-4">Submitted Documents</h3>
+              <div class="documents-grid grid grid-cols-2 gap-4">
+                  ${Object.entries(doc.documents || {})
+                    .map(
+                      ([key, document]) => `
+                      <div class="document-item p-4 border rounded">
+                          <div class="document-icon mb-2">
+                              <i class="fas fa-file-pdf text-xl"></i>
+                          </div>
+                          <div class="document-info">
+                              <div class="document-name text-sm font-medium mb-1">
+                                  ${key.replace(/([A-Z])/g, " $1").trim()}
+                              </div>
+                              <div class="document-size text-gray text-sm">
+                                  ${Math.round(document.size / 1024)} KB
+                              </div>
+                          </div>
+                          <button onclick="window.viewVerificationDocument('${
+                            doc.requestId
+                          }', '${key}')" 
+                                  class="btn-secondary mt-2 w-full">
+                              <i class="fas fa-eye"></i> View
+                          </button>
+                      </div>
+                  `
+                    )
+                    .join("")}
+              </div>
+          </div>
+
+          <!-- Blockchain Information -->
+          <div class="detail-section mb-6">
+              <h3 class="text-lg font-medium mb-4">Blockchain Information</h3>
+              <div class="blockchain-info p-4 bg-darker rounded">
+                  <div class="detail-row">
+                      <span class="detail-label">Blockchain ID:</span>
+                      <span class="detail-value monospace">${
+                        doc.currentBlockchainId || "Not available"
+                      }</span>
+                  </div>
+                  <div class="detail-row">
+                      <span class="detail-label">Verification Status:</span>
+                      <span class="status status-${
+                        doc.isVerified ? "verified" : "pending"
+                      }">
+                          ${doc.isVerified ? "Verified" : "Pending"}
+                      </span>
+                  </div>
+                  <div class="detail-row">
+                      <span class="detail-label">Last Updated:</span>
+                      <span class="detail-value">${formatDate(
+                        doc.lastUpdated
+                      )}</span>
+                  </div>
+              </div>
+          </div>
+
+          <!-- Verification Notes -->
+          <div class="verification-notes mt-6">
+              <h3 class="text-lg font-medium mb-2">Verification Notes</h3>
+              <textarea id="verificationNotes" class="w-full p-2 mt-2 bg-darker" rows="4" 
+                  placeholder="Add your verification notes here..."></textarea>
+          </div>
+      </div>
+  `;
+};
+
+// Add helper function to view verification documents
+window.viewVerificationDocument = async function (requestId, documentKey) {
+  try {
+    const response = await fetch(
+      `/api/verification-requests/${requestId}/document/${documentKey}`,
+      {
+        headers: getAuthHeaders(),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    // Open document in new window/tab
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    window.open(url, "_blank");
+  } catch (error) {
+    console.error("Error viewing document:", error);
+    showToast("Failed to load document", "error");
+  }
+};
+
 // Activity Management
 function addActivity(activity) {
   activities.unshift(activity);
@@ -638,7 +985,7 @@ async function updateDashboard() {
     fetchMetrics(),
     showPendingList(),
     showTransferList(),
-    showCompletedList(),
+    showVerificationList(),
     updateActivityList(),
   ]);
 }

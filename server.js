@@ -2283,13 +2283,11 @@ app.get(
   async (req, res) => {
     try {
       const { requestId } = req.params;
-      const userEmail = req.user.email;
 
       const verificationRequest = await db
         .collection("verificationRequests")
         .findOne({
           requestId: requestId,
-          userId: userEmail,
         });
 
       if (
@@ -2373,84 +2371,59 @@ app.get(
 // Get dashboard metrics
 app.get("/api/metrics", async (req, res) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const [
-      registrationRequests,
-      transferRequests,
-      completedToday,
-      latestActivity,
-    ] = await Promise.all([
-      // Get registration requests
-      db
-        .collection("registrationRequests")
-        .aggregate([
-          { $match: { status: "pending" } },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: 1 },
-              urgent: {
-                $sum: { $cond: [{ $eq: ["$priority", "urgent"] }, 1, 0] },
-              },
-            },
-          },
-        ])
-        .toArray(),
-
-      // Get transfer requests
-      db
-        .collection("transferRequests")
-        .aggregate([
-          { $match: { status: "pending" } },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: 1 },
-              pendingApproval: {
-                $sum: {
-                  $cond: [{ $eq: ["$approvalStatus", "pending"] }, 1, 0],
+    const [registrationRequests, transferRequests, verificationDocuments] =
+      await Promise.all([
+        // Get registration requests
+        db
+          .collection("registrationRequests")
+          .aggregate([
+            { $match: { status: "pending" } },
+            {
+              $group: {
+                _id: null,
+                total: { $sum: 1 },
+                urgent: {
+                  $sum: { $cond: [{ $eq: ["$priority", "urgent"] }, 1, 0] },
                 },
               },
             },
-          },
-        ])
-        .toArray(),
+          ])
+          .toArray(),
 
-      // Get completed today
-      db.collection("registrationRequests").countDocuments({
-        status: "completed",
-        completedAt: { $gte: today },
-      }),
+        // Get transfer requests
+        db
+          .collection("transferRequests")
+          .aggregate([
+            { $match: { status: "pending" } },
+            {
+              $group: {
+                _id: null,
+                total: { $sum: 1 },
+                pendingApproval: {
+                  $sum: {
+                    $cond: [{ $eq: ["$approvalStatus", "pending"] }, 1, 0],
+                  },
+                },
+              },
+            },
+          ])
+          .toArray(),
 
-      // Get latest completed activity
-      db
-        .collection("registrationRequests")
-        .find({ status: "completed" })
-        .sort({ completedAt: -1 })
-        .limit(1)
-        .toArray(),
-    ]);
+        // Get document verification count from blockchainTxns
+        db.collection("blockchainTxns").countDocuments({
+          type: "DOCUMENT_VERIFICATION",
+          isVerified: false,
+        }),
+      ]);
 
-    // Store metrics in history
-    await db.collection("metricsHistory").insertOne({
-      timestamp: new Date(),
-      pendingRegistrations: registrationRequests[0]?.total || 0,
-      urgentRegistrations: registrationRequests[0]?.urgent || 0,
-      pendingTransfers: transferRequests[0]?.total || 0,
-      pendingApprovals: transferRequests[0]?.pendingApproval || 0,
-      completedToday: completedToday,
-      lastCompletedAt: latestActivity[0]?.completedAt,
-    });
-
+    // Format response
     res.json({
       pendingCount: registrationRequests[0]?.total || 0,
       urgentCount: registrationRequests[0]?.urgent || 0,
       transferCount: transferRequests[0]?.total || 0,
       pendingApprovalCount: transferRequests[0]?.pendingApproval || 0,
-      completedCount: completedToday,
-      lastCompletedTime: latestActivity[0]?.completedAt,
+      verificationCount: verificationDocuments,
+      verifiedCount: 0, // This will be updated when verification is complete
     });
   } catch (error) {
     Logger.error("Error fetching metrics:", error);
@@ -2743,6 +2716,258 @@ app.get("/api/pending-requests", enhancedVerifyToken, async (req, res) => {
     Logger.error("Error fetching pending requests:", error);
     res.status(500).json({
       error: "Failed to fetch pending requests",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Get document requests
+app.get("/api/verification-requests", enhancedVerifyToken, async (req, res) => {
+  try {
+    const verificationRequests = await db
+      .collection("verificationRequests")
+      .aggregate([
+        {
+          $lookup: {
+            from: "blockchainTxns",
+            let: { blockchainId: "$blockchainId" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$currentBlockchainId", "$$blockchainId"] },
+                      { $eq: ["$type", "DOCUMENT_VERIFICATION"] },
+                    ],
+                  },
+                },
+              },
+            ],
+            as: "blockchainDetails",
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            requestId: 1,
+            personalInfo: 1,
+            status: 1,
+            submissionDate: 1,
+            documentType: "$personalInfo.documentType",
+            blockchainInfo: {
+              $cond: {
+                if: { $gt: [{ $size: "$blockchainDetails" }, 0] },
+                then: {
+                  $let: {
+                    vars: {
+                      blockchainDoc: {
+                        $arrayElemAt: ["$blockchainDetails", 0],
+                      },
+                    },
+                    in: {
+                      transactionHash: "$$blockchainDoc.transactionHash",
+                      blockNumber: "$$blockchainDoc.blockNumber",
+                      isVerified: "$$blockchainDoc.isVerified",
+                      contractAddress: "$$blockchainDoc.currentBlockchainId",
+                    },
+                  },
+                },
+                else: null,
+              },
+            },
+          },
+        },
+      ])
+      .toArray();
+
+    Logger.info(`Found ${verificationRequests.length} verification requests`);
+
+    res.json({
+      success: true,
+      requests: verificationRequests,
+    });
+  } catch (error) {
+    Logger.error("Error fetching verification requests:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch verification requests",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Get all pending documents
+app.get("/api/pending-documents", enhancedVerifyToken, async (req, res) => {
+  try {
+    // First fetch from blockchainTxns - all unverified document verifications
+    const blockchainDocs = await db
+      .collection("blockchainTxns")
+      .find({
+        type: "DOCUMENT_VERIFICATION",
+        isVerified: false,
+      })
+      .toArray();
+
+    Logger.info(`Found ${blockchainDocs.length} pending blockchain documents`);
+
+    // Get all requestIds
+    const requestIds = blockchainDocs.map((doc) => doc.requestId);
+
+    // Fetch corresponding verification requests
+    const verificationRequests = await db
+      .collection("verificationRequests")
+      .find({
+        requestId: { $in: requestIds },
+      })
+      .toArray();
+
+    Logger.info(`Found ${verificationRequests.length} verification requests`);
+
+    // Create a map for quick lookup
+    const verificationMap = new Map(
+      verificationRequests.map((req) => [req.requestId, req])
+    );
+
+    // Combine the data
+    const documents = blockchainDocs
+      .map((blockchainDoc) => {
+        const verificationData = verificationMap.get(blockchainDoc.requestId);
+
+        if (!verificationData) {
+          Logger.warn(
+            `No verification data found for requestId: ${blockchainDoc.requestId}`
+          );
+          return null;
+        }
+
+        return {
+          _id: blockchainDoc._id,
+          requestId: blockchainDoc.requestId,
+          documentType: blockchainDoc.documentType,
+          currentBlockchainId: blockchainDoc.currentBlockchainId,
+          status: verificationData.status || "pending",
+          submissionDate:
+            blockchainDoc.transactions[0]?.timestamp ||
+            verificationData.submissionDate,
+          lastUpdated: verificationData.lastUpdated,
+          owner: blockchainDoc.owner,
+          isVerified: blockchainDoc.isVerified,
+          personalInfo: verificationData.personalInfo,
+          documents: verificationData.documents,
+          verificationSteps: verificationData.verificationSteps,
+          blockchainDetails: {
+            transactionHash: blockchainDoc.transactions[0]?.transactionHash,
+            blockNumber: blockchainDoc.transactions[0]?.blockNumber,
+            contractAddress: blockchainDoc.currentBlockchainId,
+            verificationStatus: blockchainDoc.isVerified
+              ? "Verified"
+              : "Pending",
+            transactions: blockchainDoc.transactions,
+            blockchainIds: blockchainDoc.blockchainIds,
+          },
+        };
+      })
+      .filter(Boolean); // Remove any null entries
+
+    Logger.info(`Returning ${documents.length} combined documents`);
+
+    res.json({
+      success: true,
+      documents,
+    });
+  } catch (error) {
+    Logger.error("Error fetching pending documents:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch documents",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Get single document details
+app.get("/api/pending-documents/:id", enhancedVerifyToken, async (req, res) => {
+  try {
+    const docId = req.params.id;
+
+    // First try to find in blockchainTxns
+    const blockchainDoc = await db.collection("blockchainTxns").findOne({
+      $or: [
+        { requestId: docId },
+        { _id: ObjectId.isValid(docId) ? new ObjectId(docId) : null },
+      ],
+      type: "DOCUMENT_VERIFICATION",
+    });
+
+    if (!blockchainDoc) {
+      return res.status(404).json({
+        success: false,
+        error: "Document not found in blockchain records",
+      });
+    }
+
+    // Then fetch full details from verificationRequests
+    const verificationData = await db
+      .collection("verificationRequests")
+      .findOne({
+        requestId: blockchainDoc.requestId,
+      });
+
+    if (!verificationData) {
+      return res.status(404).json({
+        success: false,
+        error: "Verification request details not found",
+      });
+    }
+
+    // Combine the data
+    const formattedDocument = {
+      _id: blockchainDoc._id,
+      requestId: blockchainDoc.requestId,
+      documentType: blockchainDoc.documentType,
+      currentBlockchainId: blockchainDoc.currentBlockchainId,
+      status: verificationData.status,
+      submissionDate: verificationData.submissionDate,
+      lastUpdated: verificationData.lastUpdated,
+      owner: blockchainDoc.owner,
+      isVerified: blockchainDoc.isVerified,
+
+      // Personal Information
+      personalInfo: verificationData.personalInfo,
+
+      // Documents
+      documents: verificationData.documents,
+
+      // Verification Steps
+      verificationSteps: verificationData.verificationSteps,
+
+      // Blockchain Information
+      blockchainDetails: {
+        transactionHash: blockchainDoc.transactions[0]?.transactionHash,
+        blockNumber: blockchainDoc.transactions[0]?.blockNumber,
+        contractAddress: blockchainDoc.currentBlockchainId,
+        verificationStatus: blockchainDoc.isVerified ? "Verified" : "Pending",
+        transactions: blockchainDoc.transactions,
+        blockchainIds: blockchainDoc.blockchainIds,
+      },
+    };
+
+    Logger.info(
+      `Successfully fetched document details for requestId: ${blockchainDoc.requestId}`
+    );
+
+    res.json({
+      success: true,
+      document: formattedDocument,
+    });
+  } catch (error) {
+    Logger.error("Error fetching document details:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch document details",
       details:
         process.env.NODE_ENV === "development" ? error.message : undefined,
     });
