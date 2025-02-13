@@ -228,6 +228,69 @@ const upload = multer({
   },
 });
 
+// Government login route
+app.post("/gov-login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Email and password are required",
+      });
+    }
+
+    if (!email.endsWith("@gov.in")) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid government email domain",
+      });
+    }
+
+    // Check if user exists in the database
+    const user = await db.collection("users").findOne({
+      email,
+      password,
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid credentials",
+      });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        email,
+        name: user.name,
+        type: "government",
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    res.status(200).json({
+      success: true,
+      token,
+      user: {
+        email: user.email,
+        name: user.name,
+        type: "government",
+      },
+    });
+  } catch (error) {
+    Logger.error("Government login error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Authentication failed",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
 // JWT Token Verification Middleware
 const enhancedVerifyToken = async (req, res, next) => {
   try {

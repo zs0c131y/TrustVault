@@ -26,7 +26,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (!data.valid) {
       console.warn("Token invalid:", data.message);
-      await signOut(auth); // Firebase signout
+      await signOut(auth);
       window.location.href = "/login.html";
       return;
     }
@@ -45,6 +45,7 @@ const signupForm = document.getElementById("signupForm");
 const errorBox = document.getElementById("errorBox");
 const loginSpinner = document.getElementById("loginSpinner");
 const loginButton = document.getElementById("loginButton");
+const accountTypeSelect = document.getElementById("accountType");
 
 loginTab.addEventListener("click", () => {
   loginTab.classList.add("active");
@@ -60,6 +61,36 @@ signupTab.addEventListener("click", () => {
   loginForm.classList.remove("active");
 });
 
+async function handleGovernmentLogin(email, password) {
+  try {
+    if (!email.endsWith("@gov.in")) {
+      throw new Error("Invalid government email domain");
+    }
+
+    const response = await fetch("/gov-login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        password,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || "Login failed");
+    }
+
+    await setToken(data.token);
+    window.location.href = "./govdash.html";
+  } catch (error) {
+    throw new Error(error.message || "Government login failed");
+  }
+}
+
 document.querySelector(".loginform").addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -68,41 +99,46 @@ document.querySelector(".loginform").addEventListener("submit", async (e) => {
 
   const email = document.getElementById("loginEmail").value;
   const password = document.getElementById("loginPassword").value;
+  const accountType = accountTypeSelect.value;
 
   try {
-    const userCredential = await signInWithEmailAndPassword(
-      auth,
-      email,
-      password
-    );
-    const user = userCredential.user;
-
-    if (!user.emailVerified) {
-      showError("Please verify your email before logging in");
-      return;
-    }
-
-    const response = await fetch("/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email: user.email,
-        name: user.displayName,
-        firebaseUID: user.uid,
-      }),
-    });
-
-    const data = await response.json();
-    console.log("Login response:", data);
-
-    if (data.token) {
-      await setToken(data.token);
-      console.log("Token stored:", data.token);
-      window.location.href = "./dashboard.html";
+    if (accountType === "government") {
+      await handleGovernmentLogin(email, password);
     } else {
-      throw new Error("No token received from server");
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      const user = userCredential.user;
+
+      if (!user.emailVerified) {
+        showError("Please verify your email before logging in");
+        return;
+      }
+
+      const response = await fetch("/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: user.email,
+          name: user.displayName,
+          firebaseUID: user.uid,
+        }),
+      });
+
+      const data = await response.json();
+      console.log("Login response:", data);
+
+      if (data.token) {
+        await setToken(data.token);
+        console.log("Token stored:", data.token);
+        window.location.href = "./dashboard.html";
+      } else {
+        throw new Error("No token received from server");
+      }
     }
   } catch (error) {
     console.error("Login error:", error);

@@ -11,6 +11,32 @@
       href="https://fonts.googleapis.com/css2?family=Questrial&display=swap"
       rel="stylesheet"
     />
+    <style>
+      .account-type-select {
+        display: block;
+        width: 80%;
+        height: 50px;
+        padding: 10px;
+        margin: 10px auto;
+        border: none;
+        border-radius: 30px;
+        background-color: #171717;
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+        outline: none;
+      }
+
+      .account-type-select:focus {
+        background-color: #333;
+      }
+
+      .account-type-select option {
+        background-color: #171717;
+        color: #fff;
+        padding: 10px;
+      }
+    </style>
   </head>
   <body>
     <div class="container">
@@ -26,6 +52,10 @@
 
       <div id="loginForm" class="form active">
         <form class="loginform">
+          <select class="account-type-select" id="accountType">
+            <option value="user">My User Account</option>
+            <option value="government">Government Account</option>
+          </select>
           <input type="email" id="loginEmail" placeholder="Email" required />
           <input
             type="password"
