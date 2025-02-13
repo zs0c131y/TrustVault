@@ -1924,34 +1924,30 @@ app.get(
   async (req, res) => {
     try {
       const { propertyId, docKey } = req.params;
+      const type = req.query.type; // Get request type from query parameter
 
-      const registration = await db
-        .collection("registrationRequests")
-        .find({
-          $or: [
-            {
-              _id: ObjectId.isValid(propertyId)
-                ? new ObjectId(propertyId)
-                : null,
-            },
-            { "propertyInfo.propertyId": propertyId },
-          ],
-        })
-        .sort({ createdAt: -1 })
-        .limit(1)
-        .toArray();
-
-      const latestRegistration = registration[0];
+      let documentRequest;
+      if (type === "registration") {
+        // Search in registrationRequests
+        documentRequest = await db
+          .collection("registrationRequests")
+          .findOne({ "propertyInfo.propertyId": propertyId });
+      } else if (type === "transfer") {
+        // Search in transferRequests
+        documentRequest = await db
+          .collection("transferRequests")
+          .findOne({ "propertyInfo.propertyId": propertyId });
+      }
 
       if (
-        !latestRegistration ||
-        !latestRegistration.documents ||
-        !latestRegistration.documents[docKey]
+        !documentRequest ||
+        !documentRequest.documents ||
+        !documentRequest.documents[docKey]
       ) {
         return res.status(404).json({ error: "Document not found" });
       }
 
-      const documentPath = latestRegistration.documents[docKey];
+      const documentPath = documentRequest.documents[docKey];
 
       // Check if file exists
       if (!fs.existsSync(documentPath)) {
@@ -3042,6 +3038,52 @@ app.post("/api/complete-verification", async (req, res) => {
     res.status(500).json({ error: "Failed to complete verification" });
   }
 });
+
+// View verification document route
+app.get(
+  "/api/verification-requests/:requestId/document/:docKey",
+  enhancedVerifyToken,
+  async (req, res) => {
+    try {
+      const { requestId, docKey } = req.params;
+
+      // Find the verification request
+      const verificationRequest = await db
+        .collection("verificationRequests")
+        .findOne({
+          requestId: requestId,
+        });
+
+      if (
+        !verificationRequest ||
+        !verificationRequest.documents ||
+        !verificationRequest.documents[docKey]
+      ) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      const documentPath = verificationRequest.documents[docKey].path;
+
+      // Check if file exists
+      if (!fs.existsSync(documentPath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      // Send file
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${verificationRequest.documents[docKey].originalName}"`
+      );
+
+      const fileStream = fs.createReadStream(documentPath);
+      fileStream.pipe(res);
+    } catch (error) {
+      Logger.error("Error viewing verification document:", error);
+      res.status(500).json({ error: "Failed to view document" });
+    }
+  }
+);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

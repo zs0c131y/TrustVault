@@ -189,7 +189,7 @@ window.showModal = function (modalId) {
   // Show modal
   modal.style.display = "block";
 
-  // Load appropriate content
+  // Load appropriate content based on modal type
   if (modalId === "pendingModal") {
     showPendingList();
   } else if (modalId === "transferModal") {
@@ -348,68 +348,96 @@ function generateDocumentTable(docs) {
 }
 
 // Verification details display
-window.showVerificationDetails = async function (propertyId, type) {
+window.showVerificationDetails = async function (id, type) {
   try {
-    console.log("Showing verification details for property:", {
-      propertyId,
-      type,
-    });
+    console.log("Showing verification details for:", { id, type });
 
-    // Fetch all pending requests
-    const response = await fetch("/api/pending-requests", {
-      headers: getAuthHeaders(),
-    });
+    let response;
+    let request;
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // Different handling based on verification type
+    if (type === "registration" || type === "transfer") {
+      // Property verification logic remains the same
+      const modal = document.getElementById("propertyVerificationModal");
+      if (!modal) return;
+
+      response = await fetch("/api/pending-requests", {
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      request = data.requests.find(
+        (req) => req.propertyId === id && req.type === type
+      );
+
+      if (!request) {
+        throw new Error("Details not found");
+      }
+
+      currentVerificationDoc = request;
+
+      const titleElement = modal.querySelector(".modal-header h2");
+      if (titleElement) {
+        titleElement.innerHTML = `<i class="fas fa-check-circle"></i> ${
+          type === "transfer" ? "Property Transfer" : "Property Registration"
+        } Verification`;
+      }
+
+      const tabsElement = modal.querySelector(".tabs");
+      if (tabsElement) {
+        tabsElement.style.display = "flex";
+        switchVerificationTab("details");
+      }
+
+      modal.style.display = "block";
+      document.getElementById("modalBackdrop")?.classList.remove("hidden");
+    } else {
+      // For document verifications - updated to use correct selectors
+      const modal = document.getElementById("verificationModal");
+      const content = modal.querySelector(".document-list"); // Changed from modal-body to document-list
+
+      if (!modal || !content) {
+        console.error("Modal elements not found");
+        return;
+      }
+
+      content.innerHTML =
+        '<div class="text-center p-4">Loading verification details...</div>';
+      modal.style.display = "block";
+      document.getElementById("modalBackdrop")?.classList.remove("hidden");
+
+      response = await fetch(`/api/pending-documents/${id}`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      content.innerHTML = generateDocumentVerificationContent(data.document);
     }
-
-    const data = await response.json();
-
-    // Find the specific request matching propertyId and type
-    const request = data.requests.find(
-      (req) => req.propertyId === propertyId && req.type === type
-    );
-
-    if (!request) {
-      throw new Error("Property details not found");
-    }
-
-    // Store the current document
-    currentVerificationDoc = request;
-
-    // Show the modal
-    const modal = document.getElementById("propertyVerificationModal");
-    if (!modal) return;
-
-    // Update modal title and UI based on document type
-    const titleElement = modal.querySelector(".modal-header h2");
-    const tabsElement = modal.querySelector(".tabs");
-    const contentElement = document.getElementById("verificationContent");
-
-    if (!titleElement || !contentElement) return;
-
-    // Determine the verification type and set appropriate title
-    const isPropertyRegistration = type === "registration";
-    const isPropertyTransfer = type === "transfer";
-
-    titleElement.innerHTML = `<i class="fas fa-check-circle"></i> ${
-      isPropertyTransfer ? "Property Transfer" : "Property Registration"
-    } Verification`;
-
-    // Show tabs for property verification
-    if (tabsElement) {
-      tabsElement.style.display = "flex";
-      // Switch to the details tab by default
-      switchVerificationTab("details");
-    }
-
-    // Show the modal
-    modal.style.display = "block";
-    document.getElementById("modalBackdrop")?.classList.remove("hidden");
   } catch (error) {
     console.error("Error showing verification details:", error);
-    showToast("Failed to load property details. Please try again.", "error");
+    let errorContainer;
+
+    if (type === "registration" || type === "transfer") {
+      errorContainer = document.getElementById("verificationContent");
+    } else {
+      errorContainer = document.querySelector(".document-list"); // Changed from modal-body
+    }
+
+    if (errorContainer) {
+      errorContainer.innerHTML = `
+              <div class="text-center p-4 text-red">
+                  Error loading verification details: ${error.message}
+              </div>
+          `;
+    }
   }
 };
 
@@ -454,6 +482,131 @@ window.switchVerificationTab = function (tabName) {
       '<p class="text-center p-4 text-red">Error loading content</p>';
   }
 };
+
+// Function to generate document verification content
+function generateDocumentVerificationContent(doc) {
+  return `
+    <div class="document-verification-details">
+      <!-- Personal Information Section -->
+      <div class="section mb-6">
+        <h3 class="text-lg font-medium mb-4">Personal Information</h3>
+        <div class="detail-row">
+          <div class="detail-item">
+            <label>Name:</label>
+            <span>${doc.personalInfo?.firstName} ${
+    doc.personalInfo?.lastName
+  }</span>
+          </div>
+          <div class="detail-item">
+            <label>Email:</label>
+            <span>${doc.personalInfo?.email || "N/A"}</span>
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-item">
+            <label>Document Type:</label>
+            <span>${doc.documentType || "N/A"}</span>
+          </div>
+          <div class="detail-item">
+            <label>Submission Date:</label>
+            <span>${new Date(doc.submissionDate).toLocaleDateString()}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Document Preview Section -->
+      <div class="section mb-6">
+        <h3 class="text-lg font-medium mb-4">Document Preview</h3>
+        <div class="document-preview">
+          ${Object.entries(doc.documents || {})
+            .map(
+              ([key, value]) => `
+            <div class="document-item p-2 border rounded mb-2 flex justify-between items-center">
+              <span>${key.replace(/([A-Z])/g, " $1").trim()}</span>
+              <button onclick="window.viewVerificationDocument('${
+                doc.requestId
+              }', '${key}')" class="btn-secondary">
+                <i class="fas fa-eye"></i> View
+              </button>
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+      </div>
+
+      <!-- Verification Status Section -->
+      <div class="section mb-6">
+        <h3 class="text-lg font-medium mb-4">Verification Status</h3>
+        <div class="verification-steps">
+          ${doc.verificationSteps
+            .map(
+              (step) => `
+            <div class="verification-step ${step.status}">
+              <div class="step-icon">
+                ${getStepStatusIcon(step.status)}
+              </div>
+              <div class="step-details">
+                <div class="step-name capitalize">${step.step.replace(
+                  /_/g,
+                  " "
+                )}</div>
+                <div class="step-timestamp text-gray">
+                  ${
+                    step.timestamp
+                      ? new Date(step.timestamp).toLocaleString()
+                      : "Pending"
+                  }
+                </div>
+              </div>
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+      </div>
+
+      <!-- Blockchain Information -->
+      <div class="section mb-6">
+        <h3 class="text-lg font-medium mb-4">Blockchain Information</h3>
+        <div class="blockchain-info p-4 bg-darker rounded">
+          <div class="detail-row">
+            <span class="detail-label">IPFS Hash:</span>
+            <span class="detail-value">${
+              doc.blockchainDetails?.transactionHash || "N/A"
+            }</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Blockchain ID:</span>
+            <span class="detail-value">${
+              doc.blockchainDetails?.contractAddress || "N/A"
+            }</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Verification Status:</span>
+            <span class="status status-${
+              doc.isVerified ? "verified" : "pending"
+            }">
+              ${doc.isVerified ? "Verified" : "Pending"}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Helper function for step status icons
+function getStepStatusIcon(status) {
+  switch (status) {
+    case "completed":
+      return '<i class="fas fa-check-circle text-green"></i>';
+    case "pending":
+      return '<i class="fas fa-clock text-yellow"></i>';
+    default:
+      return '<i class="fas fa-circle text-gray"></i>';
+  }
+}
 
 // Property details generation
 window.generatePropertyDetails = function (doc) {
@@ -508,9 +661,6 @@ window.generatePropertyDetails = function (doc) {
           </div>
 
           <div class="detail-row">
-              <div class="detail-item">
-                  Property Name: ${doc.propertyName || "N/A"}
-              </div>
               <div class="detail-item">
                   Plot Number: ${doc.plotNumber || "N/A"}
               </div>
@@ -580,7 +730,7 @@ window.generateDocumentsList = function (doc) {
                 <span>${key.replace(/([A-Z])/g, " $1").trim()}</span>
                 <button onclick="window.viewDocument('${
                   doc.propertyId
-                }', '${key}')" class="btn-secondary">
+                }', '${key}', '${doc.type}')" class="btn-secondary">
                   <i class="fas fa-eye"></i> View
                 </button>
               </div>
@@ -630,9 +780,9 @@ window.generateBlockchainInfo = function (doc) {
 };
 
 // Document viewer
-window.viewDocument = async function (propertyId, docKey) {
+window.viewDocument = async function (propertyId, docKey, type) {
   try {
-    const url = `/api/property/${propertyId}/document/${docKey}/view`;
+    const url = `/api/property/${propertyId}/document/${docKey}/view?type=${type}`;
     const response = await fetch(url, {
       headers: getAuthHeaders(),
     });
@@ -915,7 +1065,7 @@ window.viewVerificationDocument = async function (requestId, documentKey) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Open document in new window/tab
+    // Create blob from response and open in new window
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     window.open(url, "_blank");

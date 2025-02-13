@@ -43,7 +43,7 @@
       <div class="main">
         <!-- Stats Grid -->
         <div class="grid">
-          <!-- Pending Verifications -->
+          <!-- Registration Verifications -->
           <div class="card card-clickable" onclick="showModal('pendingModal')">
             <div class="metric">
               <div class="metric-label">
@@ -65,14 +65,14 @@
             </div>
           </div>
 
-          <!-- Completed Today -->
+          <!-- Document Verifications -->
           <div
             class="card card-clickable"
             onclick="showModal('verificationModal')"
           >
             <div class="metric">
               <div class="metric-label">
-                <i class="fas fa-clock"></i> Document Verifications
+                <i class="fas fa-file-alt"></i> Document Verifications
               </div>
               <div class="metric-value text-green">25</div>
               <div class="metric-subtext">Last: 5 mins ago</div>
@@ -99,45 +99,11 @@
     </div>
 
     <!-- Modals -->
-    <!-- Document Details Modal -->
-    <div id="documentModal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2><i class="fas fa-file-alt"></i> Document Details</h2>
-          <button class="close-btn" onclick="closeModal('documentModal')">
-            &times;
-          </button>
-        </div>
-        <div class="tabs">
-          <div class="tab active" onclick="switchTab('details')">
-            <i class="fas fa-info-circle"></i> Details
-          </div>
-          <div class="tab" onclick="switchTab('files')">
-            <i class="fas fa-folder-open"></i> Related Files
-          </div>
-          <div class="tab" onclick="switchTab('history')">
-            <i class="fas fa-history"></i> History
-          </div>
-        </div>
-        <div id="documentContent">
-          <!-- Populated by JavaScript -->
-        </div>
-        <div class="button-group">
-          <button class="btn-primary" onclick="verifyDocument()">
-            <i class="fas fa-check-circle"></i> Verify Document
-          </button>
-          <button class="btn-secondary" onclick="closeModal('documentModal')">
-            <i class="fas fa-times"></i> Close
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Pending Registrations Modal -->
+    <!-- Registration Verifications Modal -->
     <div id="pendingModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
-          <h2><i class="fas fa-clock"></i> Pending Verifications</h2>
+          <h2><i class="fas fa-clock"></i> Registration Verifications</h2>
           <button class="close-btn" onclick="closeModal('pendingModal')">
             &times;
           </button>
@@ -146,7 +112,7 @@
           <i class="fas fa-search"></i>
           <input
             type="text"
-            placeholder="Search documents..."
+            placeholder="Search registrations..."
             onkeyup="filterDocuments(this.value, 'pending')"
           />
         </div>
@@ -179,27 +145,26 @@
       </div>
     </div>
 
-    <!-- Pending Documents Modal -->
+    <!-- Document Verifications Modal -->
     <div id="verificationModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
           <h2><i class="fas fa-file-alt"></i> Document Verifications</h2>
           <button class="close-btn" onclick="closeModal('verificationModal')">
-            &times;
+            ×
           </button>
         </div>
-        <div class="modal-body">
-          <div class="search-bar">
-            <i class="fas fa-search"></i>
-            <input
-              type="text"
-              placeholder="Search verifications..."
-              onkeyup="filterDocuments(this.value, 'verification')"
-            />
-          </div>
-          <div id="verificationList" class="document-list">
-            <!-- Table will be populated here by JavaScript -->
-          </div>
+        <div class="search-bar">
+          <i class="fas fa-search"></i>
+          <input
+            type="text"
+            placeholder="Search verifications..."
+            onkeyup="filterDocuments(this.value, 'verification')"
+          />
+        </div>
+        <!-- Add this div that matches the ID being searched for in showVerificationList -->
+        <div id="verificationList" class="document-list">
+          <!-- Will be populated by JavaScript -->
         </div>
       </div>
     </div>
@@ -290,13 +255,25 @@
       </div>
     </div>
 
-    <!-- Toast Notifications -->
-    <div id="toast" class="toast"></div>
+    <!-- Document Preview Modal -->
+    <div id="documentPreviewModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2><i class="fas fa-file-alt"></i> Document Preview</h2>
+          <button
+            class="close-btn"
+            onclick="closeModal('documentPreviewModal')"
+          >
+            &times;
+          </button>
+        </div>
+        <div id="documentPreviewContent" class="p-4">
+          <!-- PDF viewer will be loaded here -->
+        </div>
+      </div>
+    </div>
 
-    <!-- Modal Backdrop -->
-    <div id="modalBackdrop" class="modal-backdrop hidden"></div>
-
-    <!-- Property Verification Modal -->
+    <!-- Property Details Modal -->
     <div id="propertyVerificationModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
@@ -350,23 +327,11 @@
       </div>
     </div>
 
-    <!-- Document Preview Modal -->
-    <div id="documentPreviewModal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2><i class="fas fa-file-alt"></i> Document Preview</h2>
-          <button
-            class="close-btn"
-            onclick="closeModal('documentPreviewModal')"
-          >
-            &times;
-          </button>
-        </div>
-        <div id="documentPreviewContent" class="p-4">
-          <!-- PDF viewer will be loaded here -->
-        </div>
-      </div>
-    </div>
+    <!-- Toast Notifications -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Modal Backdrop -->
+    <div id="modalBackdrop" class="modal-backdrop hidden"></div>
 
     <!-- Scripts -->
     <script type="module" src="./govdash.js"></script>
