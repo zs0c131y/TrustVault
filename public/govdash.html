@@ -28,13 +28,14 @@
             <p class="text-gray">Document Verifier</p>
           </div>
           <div class="button-group">
-            <button class="btn-primary" onclick="showModal('hashModal')">
-              <i class="fas fa-cube"></i> Generate Hash
-            </button>
-            <br />
-            <button class="btn-secondary" onclick="showModal('signatureModal')">
+            <button class="btn-primary" onclick="showModal('signatureModal')">
               <i class="fas fa-signature"></i> Update Signature
             </button>
+            <br />
+            <button id="logout" class="btn-secondary">
+              <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
+            <div id="loginSpinner" class="spinner" style="display: none"></div>
           </div>
         </div>
       </div>
@@ -82,10 +83,12 @@
 
         <!-- Recent Activity -->
         <div class="card">
-          <div class="card-header">
-            <h2><i class="fas fa-history"></i> Recent Activity</h2>
+          <div class="card-header flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold">
+              <i class="fas fa-history"></i> Recent Activity
+            </h2>
             <button
-              class="btn-secondary btn-small"
+              class="btn-secondary btn-small refresh-btn"
               onclick="refreshActivities()"
             >
               <i class="fas fa-sync"></i>
@@ -166,51 +169,6 @@
         <div id="verificationList" class="document-list">
           <!-- Will be populated by JavaScript -->
         </div>
-      </div>
-    </div>
-
-    <!-- Generate Hash Modal -->
-    <div id="hashModal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2><i class="fas fa-cube"></i> Generate Blockchain Hash</h2>
-          <button class="close-btn" onclick="closeModal('hashModal')">
-            &times;
-          </button>
-        </div>
-        <form id="hashForm" onsubmit="generateHash(event)">
-          <div class="form-group">
-            <label>Document Type</label>
-            <select id="docType" required>
-              <option value="">Select Document Type</option>
-              <option value="sale">Sale Deed</option>
-              <option value="transfer">Property Transfer</option>
-              <option value="lease">Lease Agreement</option>
-              <option value="other">Other Document</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Document ID</label>
-            <input
-              type="text"
-              id="docId"
-              placeholder="Enter Document ID"
-              required
-            />
-          </div>
-          <div class="button-group">
-            <button type="submit" class="btn-primary">
-              <i class="fas fa-cube"></i> Generate Hash
-            </button>
-            <button
-              type="button"
-              class="btn-secondary"
-              onclick="closeModal('hashModal')"
-            >
-              <i class="fas fa-times"></i> Cancel
-            </button>
-          </div>
-        </form>
       </div>
     </div>
 
@@ -304,16 +262,10 @@
         </div>
         <div class="verification-form p-4 border-t">
           <div class="button-group mt-4">
-            <button
-              class="btn-primary"
-              onclick="verifyDocument(currentVerificationDoc._id, currentVerificationDoc.type)"
-            >
+            <button class="btn-primary" onclick="verifyCurrentDocument()">
               <i class="fas fa-check"></i> Approve & Verify
             </button>
-            <button
-              class="btn-secondary"
-              onclick="rejectDocument(currentVerificationDoc._id)"
-            >
+            <button class="btn-secondary" onclick="rejectCurrentDocument()">
               <i class="fas fa-times"></i> Reject
             </button>
             <button
@@ -334,6 +286,7 @@
     <div id="modalBackdrop" class="modal-backdrop hidden"></div>
 
     <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/4.2.2/web3.min.js"></script>
     <script type="module" src="./govdash.js"></script>
   </body>
 </html>

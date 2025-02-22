@@ -16,6 +16,10 @@ const { body, validationResult } = require("express-validator");
 const fs = require("fs");
 const BlockchainSync = require("./services/BlockchainSync");
 const Logger = require("./utils/logger");
+const IPFSVerificationService = require("./services/IPFSVerificationService");
+const ipfsService = new IPFSVerificationService();
+const { create } = require("ipfs-http-client");
+const { Buffer } = require("buffer");
 
 // Module-level variables
 let db = null;
@@ -175,6 +179,11 @@ app.options("*", cors());
 app.use(bodyParser.json({ limit: "10kb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "10kb" }));
 
+// Protected route for govdash.html - must be defined BEFORE general static serving
+app.get("/govdash.html", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/govdash.html"));
+});
+
 // Serve static files
 app.use(
   express.static(path.join(__dirname, "public"), {
@@ -192,8 +201,50 @@ app.use(
         res.set("Cache-Control", "public, max-age=31536000");
       }
     },
+    index: false, // Disable automatic index serving
+    // Exclude govdash.html from static serving
+    setHeaders: (res, path) => {
+      if (path.endsWith("govdash.html")) {
+        return res.status(403).end(); // Block direct static access
+      }
+    },
   })
 );
+
+const checkGovAccess = async (req, res, next) => {
+  try {
+    const token =
+      req.headers.authorization?.split(" ")[1] ||
+      req.cookies?.token ||
+      req.query?.token;
+
+    if (!token) {
+      Logger.warn("No token provided for govdash access");
+      return res.redirect("/login.html");
+    }
+
+    // Verify the token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtError) {
+      Logger.warn("Invalid token for govdash access");
+      return res.redirect("/login.html");
+    }
+
+    // Check if user exists and has gov.in email
+    const user = await db.collection("users").findOne({ email: decoded.email });
+
+    if (!user || !user.email.endsWith("@gov.in")) {
+      Logger.warn(`Unauthorized govdash access attempt by ${decoded.email}`);
+      return res.status(403).send("Access Denied: Government officials only");
+    }
+    next();
+  } catch (error) {
+    Logger.error("Error in government access check:", error);
+    res.status(500).send("Internal Server Error");
+  }
+};
 
 // File upload configuration
 const uploadDir = "./uploads";
@@ -653,6 +704,64 @@ app.get(
     }
   }
 );
+
+// Get verification status by IPFS hash
+app.get("/api/verify-document/:ipfsHash", async (req, res) => {
+  try {
+    const { ipfsHash } = req.params;
+    Logger.info("Checking verification status for IPFS hash:", ipfsHash);
+
+    // Search in verificationRequests first
+    const verificationDoc = await db
+      .collection("verificationRequests")
+      .findOne({
+        ipfsHash: ipfsHash,
+      });
+
+    if (verificationDoc) {
+      return res.json({
+        success: true,
+        isVerified: verificationDoc.status === "completed",
+        documentType: verificationDoc.documentType,
+        verificationDate: verificationDoc.verifiedAt,
+        verifiedBy: verificationDoc.verifiedBy,
+        blockchainId: verificationDoc.blockchainId,
+        transactionHash: verificationDoc.transactionHash,
+        requestId: verificationDoc.requestId,
+      });
+    }
+
+    // If not found in verificationRequests, check blockchainTxns
+    const registrationDoc = await db.collection("blockchainTxns").findOne({
+      ipfsHash: ipfsHash,
+    });
+
+    if (registrationDoc) {
+      return res.json({
+        success: true,
+        isVerified: registrationDoc.status === "completed",
+        documentType: "property_registration",
+        verificationDate: registrationDoc.verifiedAt,
+        verifiedBy: registrationDoc.verifiedBy,
+        blockchainId: registrationDoc.blockchainInfo?.blockchainId,
+        transactionHash: registrationDoc.blockchainInfo?.transactionHash,
+        propertyId: registrationDoc.propertyInfo?.propertyId,
+      });
+    }
+
+    // If not found in either, return not found
+    return res.status(404).json({
+      success: false,
+      error: "Document not found with provided IPFS hash",
+    });
+  } catch (error) {
+    Logger.error("Error checking verification status:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to check verification status",
+    });
+  }
+});
 
 app.use("/api", enhancedVerifyToken);
 
@@ -1867,42 +1976,60 @@ app.post(
 );
 
 // Get verification status endpoint
-// Get verification status endpoint
-// Get verification status endpoint
 app.get(
   "/api/verify-document/:blockchainId",
   enhancedVerifyToken,
   async (req, res) => {
     try {
       const { blockchainId } = req.params;
-      Logger.info("Verifying document with blockchain ID:", blockchainId);
+      Logger.info(
+        "Checking document verification status for blockchain ID:",
+        blockchainId
+      );
 
-      // Check in blockchainTxns collection
-      const blockchainRecord = await db.collection("blockchainTxns").findOne({
+      // Search in blockchainTxns collection
+      const document = await db.collection("blockchainTxns").findOne({
         currentBlockchainId: blockchainId,
         type: "DOCUMENT_VERIFICATION",
       });
 
-      if (blockchainRecord) {
-        return res.json({
-          success: true,
-          verified: blockchainRecord.isVerified || false,
-          documentType: blockchainRecord.documentType || "Not Available",
-          blockchainId: blockchainId,
+      if (!document) {
+        return res.status(404).json({
+          success: false,
+          error: "Document not found",
         });
       }
 
-      // If document not found
-      return res.status(404).json({
-        success: false,
-        verified: false,
-        error: "Document not found",
-      });
+      // Format response based on your document structure
+      const response = {
+        success: true,
+        document: {
+          requestId: document.requestId,
+          currentBlockchainId: document.currentBlockchainId,
+          owner: document.owner,
+          isVerified: document.isVerified || false,
+          documentType: document.documentType,
+          verifiedAt: document.verifiedAt,
+          verifiedBy: document.verifiedBy,
+          ipfsHash: document.ipfsHash,
+          transactions: document.transactions.map((tx) => ({
+            ...tx,
+            timestamp: tx.timestamp,
+          })),
+          // Add additional fields if available
+          blockchainIds: document.blockchainIds,
+        },
+      };
+
+      Logger.success("Document verification status retrieved:", response);
+      res.json(response);
     } catch (error) {
-      Logger.error("Document verification error:", error);
+      Logger.error("Error checking document verification:", error);
       res.status(500).json({
         success: false,
-        error: "Failed to verify document",
+        error: "Failed to check document verification status",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   }
@@ -2761,7 +2888,7 @@ app.get("/api/pending-requests", enhancedVerifyToken, async (req, res) => {
       `Found ${requests.length} total requests (${registrations.length} registrations, ${transfers.length} transfers)`
     );
     if (requests.length > 0) {
-      Logger.info("Sample request data:", {
+      Logger.info("Request data:", {
         propertyId: requests[0].propertyId,
         blockchainDetails: requests[0].blockchainDetails,
       });
@@ -3033,74 +3160,484 @@ app.get("/api/pending-documents/:id", enhancedVerifyToken, async (req, res) => {
   }
 });
 
-// Complete document verification
-app.post("/api/complete-verification", async (req, res) => {
+app.post("/api/sync-blockchain", enhancedVerifyToken, async (req, res) => {
   try {
-    const { documentId, type, verificationNotes } = req.body;
-    const collection =
-      type === "registration" ? "registrationRequests" : "transferRequests";
+    const { propertyId, blockchainId, txHash } = req.body;
 
-    // Update document status
-    const result = await db.collection(collection).findOneAndUpdate(
-      { _id: new ObjectId(documentId) },
-      {
-        $set: {
-          status: "completed",
-          completedAt: new Date(),
-          completedBy: req.user.email,
-          verificationNotes,
-          lastModified: new Date(),
-        },
-      },
-      { returnDocument: "after" }
-    );
-
-    if (!result.value) {
-      return res.status(404).json({ error: "Document not found" });
+    if (!propertyId || !blockchainId || !txHash) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields",
+      });
     }
 
-    // Update blockchain status
-    const propertyId = result.value.propertyInfo.propertyId;
+    // Find existing property data
+    const existingProperty = await db.collection("blockchainTxns").findOne({
+      propertyId: propertyId,
+    });
 
-    const blockchainUpdate = await db.collection("blockchainTxns").updateOne(
-      { propertyId },
-      {
-        $set: {
+    const propertyData = {
+      propertyId,
+      blockchainId,
+      isVerified: true, // Set to true since this is called after blockchain verification
+      locality: existingProperty?.locality || "Not specified",
+      propertyType: existingProperty?.propertyType || "Not specified",
+      owner: existingProperty?.owner || req.user.email,
+    };
+
+    // Sync to MongoDB using blockchainSync service
+    const result = await blockchainSync.syncPropertyToMongoDB(
+      propertyData,
+      txHash
+    );
+
+    res.json({
+      success: true,
+      message: "Blockchain sync successful",
+      data: result,
+    });
+  } catch (error) {
+    Logger.error("Blockchain sync error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to sync blockchain data",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+// Document verification route
+app.post(
+  "/api/complete-document-verification",
+  enhancedVerifyToken,
+  async (req, res) => {
+    const session = await client.startSession();
+
+    try {
+      const { documentId, verificationNotes } = req.body;
+      Logger.info("Processing document verification for:", documentId);
+
+      if (!documentId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing document ID",
+        });
+      }
+
+      await session.startTransaction();
+
+      try {
+        // Find the document
+        const query = ObjectId.isValid(documentId)
+          ? {
+              $or: [
+                { _id: new ObjectId(documentId) },
+                { requestId: documentId },
+              ],
+            }
+          : { requestId: documentId };
+
+        const document = await db
+          .collection("verificationRequests")
+          .findOne(query);
+
+        if (!document) {
+          await session.abortTransaction();
+          return res.status(404).json({
+            success: false,
+            error: `Document not found with ID: ${documentId}`,
+          });
+        }
+
+        // Connect to IPFS and upload document
+        let ipfsHash = null;
+        try {
+          const ipfs = create({
+            host: "localhost",
+            port: 5001,
+            protocol: "http",
+          });
+
+          const documentData = {
+            documentId: documentId,
+            type: "document",
+            verificationDate: new Date(),
+            verifier: req.user.email,
+            verificationNotes: verificationNotes,
+            originalData: document,
+          };
+
+          const ipfsResult = await ipfs.add(
+            {
+              path: `document_${documentId}`,
+              content: Buffer.from(JSON.stringify(documentData)),
+            },
+            {
+              pin: true,
+              wrapWithDirectory: true,
+            }
+          );
+          ipfsHash = ipfsResult.path;
+          Logger.success("Document uploaded to IPFS:", ipfsHash);
+        } catch (ipfsError) {
+          Logger.error("IPFS upload error:", ipfsError);
+        }
+
+        // Get blockchain transaction details
+        const blockchainDoc = await db.collection("blockchainTxns").findOne({
+          requestId: documentId,
+        });
+
+        // Prepare update data
+        const updateData = {
+          status: "completed",
+          verificationStatus: "verified",
           isVerified: true,
           verifiedAt: new Date(),
           verifiedBy: req.user.email,
-        },
-        $push: {
-          verificationHistory: {
-            timestamp: new Date(),
-            verifier: req.user.email,
-            notes: verificationNotes,
+          verificationNotes: verificationNotes,
+          lastModified: new Date(),
+          ipfsHash: ipfsHash,
+        };
+
+        if (blockchainDoc) {
+          updateData.blockchainId = blockchainDoc.currentBlockchainId;
+          updateData.transactionHash =
+            blockchainDoc.transactions?.[0]?.transactionHash;
+          updateData.blockchainVerification = {
+            blockchainId: blockchainDoc.currentBlockchainId,
+            transactionHash: blockchainDoc.transactions?.[0]?.transactionHash,
+            verifiedAt: new Date(),
+            isVerified: true,
+          };
+        }
+
+        // Update verification request
+        await db.collection("verificationRequests").updateOne(
+          { requestId: documentId },
+          {
+            $set: updateData,
+            $push: {
+              verificationSteps: {
+                step: "verification_completed",
+                status: "completed",
+                timestamp: new Date(),
+                ipfsHash: ipfsHash,
+                verifier: req.user.email,
+                blockchainId: updateData.blockchainId,
+                transactionHash: updateData.transactionHash,
+              },
+            },
           },
-        },
+          { session }
+        );
+
+        // Update blockchain transactions if they exist
+        if (blockchainDoc) {
+          await db.collection("blockchainTxns").updateOne(
+            { requestId: documentId },
+            {
+              $set: {
+                isVerified: true,
+                verifiedAt: new Date(),
+                verifiedBy: req.user.email,
+                ipfsHash: ipfsHash,
+                lastModified: new Date(),
+              },
+            },
+            { session }
+          );
+        }
+
+        // Create audit log entry
+        await db.collection("auditLog").insertOne(
+          {
+            action: "DOCUMENT_VERIFIED",
+            documentId: document._id,
+            requestId: documentId,
+            documentType: "document",
+            verifier: req.user.email,
+            ipfsHash: ipfsHash,
+            timestamp: new Date(),
+            notes: verificationNotes,
+            ipAddress: req.ip,
+          },
+          { session }
+        );
+
+        await session.commitTransaction();
+        Logger.success("Document verification completed:", documentId);
+
+        res.json({
+          success: true,
+          message: "Document verification completed successfully",
+          data: {
+            documentId: document._id,
+            requestId: documentId,
+            ipfsHash: ipfsHash,
+            type: "document",
+            isVerified: true,
+          },
+        });
+      } catch (error) {
+        Logger.error("Transaction error:", error);
+        await session.abortTransaction();
+        throw error;
       }
-    );
-
-    // Add to activity log
-    await db.collection("auditLog").insertOne({
-      action: "DOCUMENT_VERIFIED",
-      documentId: result.value._id,
-      propertyId,
-      verifier: req.user.email,
-      timestamp: new Date(),
-      notes: verificationNotes,
-      type,
-    });
-
-    res.json({
-      message: "Document verification completed successfully",
-      documentId: result.value._id,
-      blockchainUpdated: blockchainUpdate.modifiedCount > 0,
-    });
-  } catch (error) {
-    Logger.error("Error completing verification:", error);
-    res.status(500).json({ error: "Failed to complete verification" });
+    } catch (error) {
+      Logger.error("Error completing document verification:", error);
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      res.status(500).json({
+        success: false,
+        error: "Failed to complete verification",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    } finally {
+      await session.endSession();
+    }
   }
-});
+);
+
+// Property verification route
+app.post(
+  "/api/complete-property-verification",
+  enhancedVerifyToken,
+  async (req, res) => {
+    const session = await client.startSession();
+
+    try {
+      const { documentId, type, verificationNotes, blockchainTransaction } =
+        req.body;
+      Logger.info("Processing verification completion:", { documentId, type });
+
+      if (!documentId || !type) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required fields",
+        });
+      }
+
+      // For property verification, require blockchain transaction details
+      if (
+        (type === "registration" || type === "transfer") &&
+        (!blockchainTransaction || !blockchainTransaction.transactionHash)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing blockchain transaction details",
+        });
+      }
+
+      const collection =
+        type === "registration"
+          ? "registrationRequests"
+          : type === "transfer"
+          ? "transferRequests"
+          : type === "document"
+          ? "verificationRequests"
+          : null;
+
+      if (!collection) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid document type",
+        });
+      }
+
+      await session.startTransaction();
+
+      try {
+        // Find the document
+        let query = { "propertyInfo.propertyId": documentId };
+        if (ObjectId.isValid(documentId)) {
+          query = {
+            $or: [
+              { _id: new ObjectId(documentId) },
+              { "propertyInfo.propertyId": documentId },
+            ],
+          };
+        }
+
+        const document = await db.collection(collection).findOne(query);
+
+        if (!document) {
+          await session.abortTransaction();
+          return res.status(404).json({
+            success: false,
+            error: `Document not found with ID: ${documentId}`,
+          });
+        }
+
+        // Update document status
+        const updateData = {
+          status: "completed",
+          verificationStatus: "verified",
+          verifiedAt: new Date(),
+          verifiedBy: req.user.email,
+          verificationNotes: verificationNotes,
+          lastModified: new Date(),
+        };
+
+        // Add blockchain data for property verification
+        if (type === "registration" || type === "transfer") {
+          updateData.blockchainInfo = {
+            isVerified: true,
+            verifiedAt: new Date(),
+            verifiedBy: req.user.email,
+            transactionHash: blockchainTransaction.transactionHash,
+            blockNumber: blockchainTransaction.blockNumber,
+            lastVerification: {
+              timestamp: new Date(),
+              verifier: req.user.email,
+              transactionHash: blockchainTransaction.transactionHash,
+              blockNumber: blockchainTransaction.blockNumber,
+            },
+          };
+        }
+
+        await db
+          .collection(collection)
+          .updateOne({ _id: document._id }, { $set: updateData }, { session });
+
+        // Update blockchain transactions collection for properties
+        if (
+          (type === "registration" || type === "transfer") &&
+          document.propertyInfo?.propertyId
+        ) {
+          await db.collection("blockchainTxns").updateOne(
+            { propertyId: document.propertyInfo.propertyId },
+            {
+              $set: {
+                isVerified: true,
+                verifiedAt: new Date(),
+                verifiedBy: req.user.email,
+                propertyId: document.propertyInfo.propertyId,
+                currentBlockchainId: document.blockchainInfo?.blockchainId,
+                lastModified: new Date(),
+                type: type.toUpperCase(),
+              },
+              $push: {
+                transactions: {
+                  type: "VERIFICATION",
+                  transactionHash: blockchainTransaction.transactionHash,
+                  blockNumber: blockchainTransaction.blockNumber,
+                  timestamp: new Date(),
+                  verifier: req.user.email,
+                },
+              },
+            },
+            { upsert: true, session }
+          );
+        }
+
+        // Create activity entry
+        const activityEntry = {
+          activityType:
+            type === "registration"
+              ? "PROPERTY_REGISTRATION"
+              : type === "transfer"
+              ? "PROPERTY_TRANSFER"
+              : "DOCUMENT_VERIFICATION",
+          status: "VERIFIED",
+          timestamp: new Date(),
+          user: {
+            email: req.user.email,
+            role: "government_official",
+          },
+          property: {
+            id: document.propertyInfo?.propertyId,
+            name: document.propertyInfo?.propertyName || "Unnamed Property",
+            type: document.propertyInfo?.propertyType || "Not Specified",
+            location:
+              document.propertyInfo?.locality || "Location Not Specified",
+          },
+          transaction: {
+            id: document._id.toString(),
+            documentType: type,
+            verificationDate: new Date(),
+            blockchainId: document.blockchainInfo?.blockchainId,
+            transactionHash: blockchainTransaction?.transactionHash,
+          },
+          details: {
+            description: `${
+              type.charAt(0).toUpperCase() + type.slice(1)
+            } verified on blockchain`,
+            notes: verificationNotes,
+            ipAddress: req.ip,
+          },
+          metadata: {
+            createdAt: new Date(),
+            lastModified: new Date(),
+            sourcePage: "govdash",
+            verificationFlow: true,
+          },
+        };
+
+        await db
+          .collection("recentActivity")
+          .insertOne(activityEntry, { session });
+
+        // Create audit log entry
+        await db.collection("auditLog").insertOne(
+          {
+            action: `${type.toUpperCase()}_VERIFIED`,
+            documentId: document._id,
+            documentType: type,
+            propertyId: document.propertyInfo?.propertyId,
+            blockchainId: document.blockchainInfo?.blockchainId,
+            transactionHash: blockchainTransaction?.transactionHash,
+            blockNumber: blockchainTransaction?.blockNumber,
+            verifier: req.user.email,
+            timestamp: new Date(),
+            notes: verificationNotes,
+            ipAddress: req.ip,
+          },
+          { session }
+        );
+
+        await session.commitTransaction();
+        Logger.success(
+          `${type} verification completed successfully:`,
+          documentId
+        );
+
+        res.json({
+          success: true,
+          message: `${
+            type.charAt(0).toUpperCase() + type.slice(1)
+          } verification completed successfully`,
+          data: {
+            documentId: document._id,
+            type: type,
+            isVerified: true,
+            blockchainTransaction: blockchainTransaction,
+          },
+        });
+      } catch (error) {
+        Logger.error("Transaction error:", error);
+        await session.abortTransaction();
+        throw error;
+      }
+    } catch (error) {
+      Logger.error("Error completing verification:", error);
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      res.status(500).json({
+        success: false,
+        error: "Failed to complete verification",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    } finally {
+      await session.endSession();
+    }
+  }
+);
 
 // View verification document route
 app.get(
@@ -3147,6 +3684,36 @@ app.get(
     }
   }
 );
+
+// Recent Activities endpoint
+app.get("/api/recent-activities", enhancedVerifyToken, async (req, res) => {
+  try {
+    // Calculate timestamp for 24 hours ago
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const activities = await db
+      .collection("recentActivity")
+      .find({
+        timestamp: { $gte: twentyFourHoursAgo },
+      })
+      .sort({ timestamp: -1 })
+      .limit(50)
+      .toArray();
+
+    res.json({
+      success: true,
+      activities,
+    });
+  } catch (error) {
+    Logger.error("Error fetching recent activities:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch recent activities",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

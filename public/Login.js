@@ -84,8 +84,17 @@ async function handleGovernmentLogin(email, password) {
       throw new Error(data.error || "Login failed");
     }
 
+    // Store user type in localStorage
+    localStorage.setItem("userType", "government");
+
+    // Store the user data
+    localStorage.setItem("user", JSON.stringify(data.user));
+
+    // Set the token
     await setToken(data.token);
-    window.location.href = "./govdash.html";
+
+    // Simple redirect to govdash
+    window.location.href = "/govdash.html";
   } catch (error) {
     throw new Error(error.message || "Government login failed");
   }
@@ -104,6 +113,7 @@ document.querySelector(".loginform").addEventListener("submit", async (e) => {
   try {
     if (accountType === "government") {
       await handleGovernmentLogin(email, password);
+      return;
     } else {
       const userCredential = await signInWithEmailAndPassword(
         auth,

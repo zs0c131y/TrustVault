@@ -401,3 +401,30 @@ select:focus {
     margin-bottom: 0.25rem;
   }
 }
+
+.text-gray {
+  color: var(--gray);
+}
+.text-red {
+  color: var(--red);
+}
+.text-green {
+  color: var(--green);
+}
+.text-yellow {
+  color: var(--yellow);
+}
+
+/* Refresh Animation */
+.refresh-btn.rotating i {
+  animation: rotate 1s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

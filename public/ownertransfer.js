@@ -1272,7 +1272,30 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       throw new Error("Property ID is required");
     }
 
-    // Get blockchain ID from the correct endpoint
+    // First check verification status in the database
+    const dbVerificationResponse = await fetch(
+      `/api/property/details/${propertyId}`,
+      {
+        headers: getAuthHeaders(),
+      }
+    );
+
+    if (!dbVerificationResponse.ok) {
+      throw new Error("Failed to fetch property verification status");
+    }
+
+    const dbVerificationData = await dbVerificationResponse.json();
+    console.log("Database verification status:", dbVerificationData);
+
+    if (
+      !dbVerificationData.data?.blockchainVerification?.verificationStatus
+        ?.toLowerCase()
+        .includes("verified")
+    ) {
+      throw new Error("Property is not marked as verified in the database");
+    }
+
+    // Get blockchain ID from the database
     const response = await fetch(`/api/ids/${propertyId}`, {
       headers: getAuthHeaders(),
     });
@@ -1289,7 +1312,6 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       throw new Error("Blockchain ID not found for property");
     }
 
-    // Use the blockchain ID from the response
     blockchainAddress = data.propertyInfo.blockchainId;
     console.log("Using blockchain address:", blockchainAddress);
 
@@ -1299,20 +1321,48 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       );
     }
 
-    // Try to get property details from blockchain
-    let propertyInfo;
+    // Additional check: Verify blockchain status
     try {
-      propertyInfo = await contractInstance.methods
-        .getProperty(blockchainAddress)
-        .call();
-      console.log("Property info from blockchain:", propertyInfo);
+      const blockchainStatusResponse = await fetch(
+        `/api/property/search-by-blockchain-id/${blockchainAddress}`,
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+
+      if (!blockchainStatusResponse.ok) {
+        throw new Error("Failed to fetch blockchain status");
+      }
+
+      const blockchainStatusData = await blockchainStatusResponse.json();
+      console.log("Blockchain status data:", blockchainStatusData);
+
+      if (!blockchainStatusData.data?.isVerified) {
+        throw new Error(
+          "Property verification status mismatch between database and blockchain"
+        );
+      }
     } catch (error) {
-      console.error("Error getting property from blockchain:", error);
-      throw new Error("Property not found on blockchain or not accessible");
+      console.error("Error checking blockchain status:", error);
+      throw new Error("Failed to verify property status on blockchain");
     }
 
-    // Verify ownership with case-insensitive comparison
-    if (propertyInfo.owner.toLowerCase() !== currentAccount.toLowerCase()) {
+    // Get contract property details
+    const propertyDetails = await contractInstance.methods
+      .getProperty(blockchainAddress)
+      .call();
+    console.log("Contract property details:", propertyDetails);
+
+    // Check if property is verified in the contract
+    if (!propertyDetails.isVerified && !propertyDetails[6]) {
+      throw new Error(
+        "Property is not marked as verified in the smart contract"
+      );
+    }
+
+    // Verify ownership
+    const propertyOwner = propertyDetails.owner || propertyDetails[4];
+    if (propertyOwner.toLowerCase() !== currentAccount.toLowerCase()) {
       throw new Error("You are not the current owner of this property");
     }
 
@@ -1321,35 +1371,21 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       throw new Error("Invalid new owner address format");
     }
 
-    console.log(
-      "Property verification successful. Proceeding with transfer..."
-    );
+    console.log("All validations passed. Proceeding with transfer...");
 
     // Get current gas price with buffer
     const gasPrice = await web3Instance.eth.getGasPrice();
     const adjustedGasPrice = Math.ceil(Number(gasPrice) * 1.1); // 10% buffer
 
-    // Create transfer method
+    // Execute transfer
     const transferMethod = contractInstance.methods.transferOwnership(
       blockchainAddress,
       newOwnerAddress
     );
+    const gasEstimate = await transferMethod.estimateGas({
+      from: currentAccount,
+    });
 
-    // Estimate gas
-    let gasEstimate;
-    try {
-      gasEstimate = await transferMethod.estimateGas({
-        from: currentAccount,
-        gas: 5000000,
-      });
-      console.log("Gas estimate:", gasEstimate);
-    } catch (gasError) {
-      console.error("Gas estimation error:", gasError);
-      gasEstimate = 300000;
-    }
-
-    // Send transfer transaction with optimized gas parameters
-    console.log("Sending transfer transaction...");
     const receipt = await transferMethod.send({
       from: currentAccount,
       gas: Math.ceil(gasEstimate * 1.2), // 20% buffer
@@ -1366,6 +1402,8 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       newOwner: newOwnerAddress,
       transferDate: new Date().toISOString(),
       transactionHash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed,
     };
   } catch (error) {
     console.error("Transfer failed:", {
@@ -1375,25 +1413,6 @@ async function transferPropertyOnBlockchain(propertyData, newOwnerAddress) {
       currentAccount,
       newOwnerAddress,
     });
-
-    // Enhanced error handling with specific messages
-    if (error.message.includes("Property not found")) {
-      throw new Error(
-        "Property not found on blockchain. Please verify the property ID."
-      );
-    } else if (error.message.includes("Not the owner")) {
-      throw new Error("You are not the current owner of this property.");
-    } else if (error.message.includes("Blockchain ID not found")) {
-      throw new Error(
-        "Property's blockchain ID not found in the database. Property may need to be registered first."
-      );
-    } else if (error.message.includes("revert")) {
-      const revertReason = error.message.includes(":")
-        ? error.message.split(":")[1].trim()
-        : "Transaction reverted by the contract";
-      throw new Error(`Transaction reverted: ${revertReason}`);
-    }
-
     throw error;
   }
 }
@@ -1558,98 +1577,52 @@ async function verifyPropertyOwnership(
       ownerAddress,
     });
 
-    // Input validation with detailed logging
+    // Input validation
     if (!propertyAddress || !ownerAddress) {
-      console.error("Missing required addresses:", {
-        propertyAddress,
-        ownerAddress,
-      });
       throw new Error("Property address and owner address are required");
     }
 
-    // Format addresses with validation
+    // Format addresses
     const formattedPropertyAddress = propertyAddress.toLowerCase();
     const formattedOwnerAddress = ownerAddress.toLowerCase();
 
-    console.log("Formatted addresses:", {
-      formattedPropertyAddress,
-      formattedOwnerAddress,
-    });
+    console.log("Attempting to fetch property details from contract...");
+    const propertyDetails = await contractInstance.methods
+      .getProperty(formattedPropertyAddress)
+      .call();
 
-    // Get property details with more robust error handling
-    let propertyDetails;
-    try {
-      console.log("Attempting to fetch property details from contract...");
-      propertyDetails = await contractInstance.methods
-        .getProperty(formattedPropertyAddress)
-        .call();
-      console.log("Raw property details received:", propertyDetails);
-    } catch (error) {
-      console.error("Contract call error:", {
-        error,
-        message: error.message,
-        data: error.data,
-      });
+    console.log("Raw property details received:", propertyDetails);
 
-      // Check if property not found
-      if (error.message.includes("Property not found")) {
-        // Try to re-register the property
-        console.log("Property not found, attempting recovery...");
-        try {
-          propertyDetails = await attemptPropertyRecovery(
-            contractInstance,
-            formattedPropertyAddress,
-            formattedOwnerAddress
-          );
-        } catch (recoveryError) {
-          console.error("Recovery failed:", recoveryError);
-          throw new Error("Property does not exist and recovery failed");
-        }
-      } else {
-        throw new Error("Failed to fetch property details from blockchain");
-      }
+    // Handle both array and object formats
+    const propertyInfo = {
+      propertyId: propertyDetails.propertyId || propertyDetails[0],
+      name: propertyDetails.propertyName || propertyDetails[1],
+      location: propertyDetails.location || propertyDetails[2],
+      propertyType: propertyDetails.propertyType || propertyDetails[3],
+      owner: propertyDetails.owner || propertyDetails[4],
+      timestamp: propertyDetails.timestamp || propertyDetails[5],
+      isVerified: propertyDetails.isVerified || propertyDetails[6],
+    };
+
+    // Verification checks
+    if (!propertyInfo.isVerified) {
+      throw new Error(
+        "Property is not verified on the blockchain. Verification is required before transfer."
+      );
     }
 
-    // Enhanced property validation
-    if (!propertyDetails || !Array.isArray(propertyDetails)) {
-      console.error("Invalid property data format:", propertyDetails);
-      throw new Error("Invalid property data received from blockchain");
-    }
-
-    // Detailed property info logging
-    const [
-      propertyId,
-      name,
-      location,
-      propertyType,
-      owner,
-      timestamp,
-      isVerified,
-    ] = propertyDetails;
-    console.log("Parsed property details:", {
-      propertyId,
-      name,
-      location,
-      propertyType,
-      owner,
-      timestamp,
-      isVerified,
-    });
-
-    // Comprehensive ownership validation
-    if (!owner || owner === "0x0000000000000000000000000000000000000000") {
+    if (
+      !propertyInfo.owner ||
+      propertyInfo.owner === "0x0000000000000000000000000000000000000000"
+    ) {
       throw new Error("Property owner not properly set on blockchain");
     }
 
-    if (owner.toLowerCase() !== formattedOwnerAddress) {
-      console.error("Owner mismatch:", {
-        contractOwner: owner.toLowerCase(),
-        requestedOwner: formattedOwnerAddress,
-      });
+    if (propertyInfo.owner.toLowerCase() !== formattedOwnerAddress) {
       throw new Error("You are not the current owner of this property");
     }
 
-    return propertyDetails;
+    return propertyInfo;
   } catch (error) {
     console.error("Property verification failed:", {
       error,

@@ -54,11 +54,45 @@ document.addEventListener("DOMContentLoaded", async () => {
   const createVerifiedProperty = (data) => {
     return `
       <div class="property-details">
-        Your Document is ${data.verified ? 'Verified ✅' : 'Not Verified ⌛'}
+        <div class="status-badge ${
+          data.isVerified ? "status-verified" : "status-pending"
+        }">
+          ${data.isVerified ? "Verified ✅" : "Not Verified ⌛"}
+        </div>
       </div>
       <div class="property-card">
-        <div class="property-title">Document Type: ${data.documentType}</div>
-        <div class="blockchain-id">Blockchain ID: ${data.blockchainId}</div>
+        <div class="property-title">Document Type: ${
+          data.documentType || "Not Available"
+        }</div>
+        <div class="blockchain-id">Blockchain ID: ${
+          data.currentBlockchainId
+        }</div>
+        <div class="details">
+          <div class="detail-row">
+            <span class="label">Request ID:</span>
+            <span class="value">${data.requestId}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">Owner:</span>
+            <span class="value">${data.owner}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">Submission Date:</span>
+            <span class="value">${new Date(
+              data.transactions[0].timestamp
+            ).toLocaleString()}</span>
+          </div>
+          ${
+            data.ipfsHash
+              ? `
+            <div class="detail-row">
+              <span class="label">IPFS Hash:</span>
+              <span class="value">${data.ipfsHash}</span>
+            </div>
+          `
+              : ""
+          }
+        </div>
       </div>
     `;
   };
@@ -81,42 +115,56 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const handleVerification = async () => {
     const value = searchInput.value;
-  
+
     if (!isValidEthereumAddress(value)) {
       errorMessage.textContent = "Please enter a valid blockchain ID";
       errorMessage.style.display = "block";
       resultContainer.innerHTML = "";
       return;
     }
-  
+
     try {
       if (!(await isAuthenticated())) {
         window.location.href = "./login.html";
         return;
       }
-  
+
       errorMessage.style.display = "none";
       toggleLoading(true);
-  
+
       const response = await fetch(`/api/verify-document/${value}`, {
         method: "GET",
         headers: getAuthHeaders(),
       });
-  
-      const data = await response.json();
-  
+
       if (!response.ok) {
-        throw new Error(data.error || 'Verification request failed');
+        throw new Error("Failed to fetch document verification status");
       }
-  
-      resultContainer.innerHTML = createVerifiedProperty({
-        blockchainId: value,
-        verified: data.verified,
-        documentType: data.documentType
-      });
+
+      const data = await response.json();
+      console.log("Verification response:", data);
+
+      if (data.success) {
+        resultContainer.innerHTML = createVerifiedProperty(data.document);
+      } else {
+        resultContainer.innerHTML = `
+          <div class="property-details">
+            <div class="status-badge status-error">
+              Document Not Found ❌
+            </div>
+          </div>
+          <div class="property-card">
+            <div class="blockchain-id">Blockchain ID: ${value}</div>
+            <div class="error-details">
+              No verification record found for this blockchain ID
+            </div>
+          </div>
+        `;
+      }
     } catch (error) {
       console.error("Verification error:", error);
-      errorMessage.textContent = error.message || "Failed to verify document. Please try again.";
+      errorMessage.textContent =
+        error.message || "Failed to verify document. Please try again.";
       errorMessage.style.display = "block";
       resultContainer.innerHTML = "";
     } finally {
