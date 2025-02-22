@@ -99,7 +99,7 @@ function displayDocument(doc) {
       <div class="info-item">
         <label>IPFS Hash</label>
         <div class="blockchain-info" onclick="copyToClipboard(this.textContent)">${
-          doc.transactionHash || "Not available"
+          doc.ipfsHash || "Not available"
         }</div>
       </div>
       <div class="info-item">

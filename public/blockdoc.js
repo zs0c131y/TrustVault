@@ -1,13 +1,33 @@
-// blockdoc.js
 import { isAuthenticated, getAuthHeaders } from "./auth.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // Get DOM elements
   const searchInput = document.getElementById("searchInput");
   const verifyButton = document.getElementById("verifyButton");
   const errorMessage = document.getElementById("errorMessage");
   const resultContainer = document.getElementById("resultContainer");
   const backButton = document.getElementById("backButton");
   const loadingSpinner = document.getElementById("loadingSpinner");
+  const switchTrack = document.querySelector(".switch-track");
+  const leftOption = switchTrack.querySelector(".left");
+  const rightOption = switchTrack.querySelector(".right");
+
+  // Switch functionality
+  function updateSwitch(type) {
+    switchTrack.setAttribute("data-active", type);
+    if (type === "blockchain") {
+      leftOption.classList.add("active");
+      rightOption.classList.remove("active");
+      searchInput.placeholder = "Enter Blockchain ID";
+    } else {
+      leftOption.classList.remove("active");
+      rightOption.classList.add("active");
+      searchInput.placeholder = "Enter IPFS Hash";
+    }
+  }
+
+  // Initialize switch
+  updateSwitch("blockchain");
 
   // Initialize with auth check
   const initializePage = async () => {
@@ -23,10 +43,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   };
 
-  // Call initialize function
   await initializePage();
 
-  // Add visibility change listener for continuous auth check
+  // Continuous auth check on visibility change
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       isAuthenticated().then((auth) => {
@@ -37,9 +56,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Validation functions
   const isValidEthereumAddress = (address) => {
     const ethereumRegex = /^0x[a-fA-F0-9]{40}$/;
     return ethereumRegex.test(address);
+  };
+
+  const isValidIpfsHash = (hash) => {
+    const ipfsRegex =
+      /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{57})$/;
+    return ipfsRegex.test(hash);
   };
 
   const toggleLoading = (show) => {
@@ -61,27 +87,47 @@ document.addEventListener("DOMContentLoaded", async () => {
         </div>
       </div>
       <div class="property-card">
-        <div class="property-title">Document Type: ${
-          data.documentType || "Not Available"
-        }</div>
+        <div class="property-title">Document Status</div>
         <div class="blockchain-id">Blockchain ID: ${
           data.currentBlockchainId
         }</div>
         <div class="details">
           <div class="detail-row">
-            <span class="label">Request ID:</span>
-            <span class="value">${data.requestId}</span>
+            <span class="label">Document Type:</span>
+            <span class="value">${data.documentType || "Not Available"}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">Status:</span>
+            <span class="value">${
+              data.isVerified ? "Verified" : "Pending"
+            }</span>
           </div>
           <div class="detail-row">
             <span class="label">Owner:</span>
-            <span class="value">${data.owner}</span>
+            <span class="value">${data.owner || "Not Available"}</span>
           </div>
-          <div class="detail-row">
-            <span class="label">Submission Date:</span>
-            <span class="value">${new Date(
-              data.transactions[0].timestamp
-            ).toLocaleString()}</span>
-          </div>
+          ${
+            data.verifiedAt
+              ? `
+            <div class="detail-row">
+              <span class="label">Verification Date:</span>
+              <span class="value">${new Date(
+                data.verifiedAt
+              ).toLocaleString()}</span>
+            </div>
+          `
+              : ""
+          }
+          ${
+            data.verifiedBy
+              ? `
+            <div class="detail-row">
+              <span class="label">Verified By:</span>
+              <span class="value">${data.verifiedBy}</span>
+            </div>
+          `
+              : ""
+          }
           ${
             data.ipfsHash
               ? `
@@ -92,38 +138,44 @@ document.addEventListener("DOMContentLoaded", async () => {
           `
               : ""
           }
+          ${
+            data.transactions && data.transactions.length > 0
+              ? `
+            <div class="detail-row">
+              <span class="label">Transaction Date:</span>
+              <span class="value">${new Date(
+                data.transactions[data.transactions.length - 1].timestamp
+              ).toLocaleString()}</span>
+            </div>
+          `
+              : ""
+          }
         </div>
       </div>
     `;
   };
 
-  const createPendingMessage = (blockchainId) => {
-    const documentType =
-      localStorage.getItem("documentType") || "Not Available";
-
-    return `
-      <div class="property-details">
-        Your Document is Not Verified
-      </div>
-      <div class="property-card">
-        <div class="property-title">Document Type: ${documentType}</div>
-        <div class="address">Verified On: Not Verified</div>
-        <div class="blockchain-id">Blockchain ID: ${blockchainId}</div>
-      </div>
-    `;
+  const validateInput = (value, type) => {
+    if (type === "blockchainId") {
+      if (!isValidEthereumAddress(value)) {
+        throw new Error("Please enter a valid blockchain ID");
+      }
+    } else if (type === "ipfsHash") {
+      if (!isValidIpfsHash(value)) {
+        throw new Error("Please enter a valid IPFS hash");
+      }
+    }
   };
 
   const handleVerification = async () => {
-    const value = searchInput.value;
-
-    if (!isValidEthereumAddress(value)) {
-      errorMessage.textContent = "Please enter a valid blockchain ID";
-      errorMessage.style.display = "block";
-      resultContainer.innerHTML = "";
-      return;
-    }
+    const value = searchInput.value.trim();
+    const currentType = switchTrack.getAttribute("data-active");
+    const searchType =
+      currentType === "blockchain" ? "blockchainId" : "ipfsHash";
 
     try {
+      validateInput(value, searchType);
+
       if (!(await isAuthenticated())) {
         window.location.href = "./login.html";
         return;
@@ -132,20 +184,29 @@ document.addEventListener("DOMContentLoaded", async () => {
       errorMessage.style.display = "none";
       toggleLoading(true);
 
-      const response = await fetch(`/api/verify-document/${value}`, {
+      const endpoint =
+        searchType === "blockchainId"
+          ? `/api/document/search-by-blockchain-id/${value}`
+          : `/api/document/search-by-ipfs-hash/${value}`;
+
+      const response = await fetch(endpoint, {
         method: "GET",
         headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch document verification status");
+        throw new Error(
+          response.status === 404
+            ? "Document not found in verification records"
+            : "Failed to verify document"
+        );
       }
 
       const data = await response.json();
       console.log("Verification response:", data);
 
-      if (data.success) {
-        resultContainer.innerHTML = createVerifiedProperty(data.document);
+      if (data.success && data.data) {
+        resultContainer.innerHTML = createVerifiedProperty(data.data);
       } else {
         resultContainer.innerHTML = `
           <div class="property-details">
@@ -154,9 +215,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             </div>
           </div>
           <div class="property-card">
-            <div class="blockchain-id">Blockchain ID: ${value}</div>
+            <div class="blockchain-id">${
+              searchType === "blockchainId" ? "Blockchain ID" : "IPFS Hash"
+            }: ${value}</div>
             <div class="error-details">
-              No verification record found for this blockchain ID
+              No verification record found for this ${
+                searchType === "blockchainId" ? "blockchain ID" : "IPFS hash"
+              }
             </div>
           </div>
         `;
@@ -172,29 +237,38 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   };
 
-  // Enable/disable verify button based on input
+  // Event Listeners
   searchInput?.addEventListener("input", (e) => {
     const value = e.target.value;
     errorMessage.style.display = "none";
     verifyButton.disabled = !value;
   });
 
-  // Handle verification on button click
+  switchTrack?.addEventListener("click", () => {
+    const currentType = switchTrack.getAttribute("data-active");
+    const newType = currentType === "blockchain" ? "ipfs" : "blockchain";
+    updateSwitch(newType);
+
+    // Clear input and error when switching
+    searchInput.value = "";
+    errorMessage.style.display = "none";
+    resultContainer.innerHTML = "";
+    verifyButton.disabled = true;
+  });
+
   verifyButton?.addEventListener("click", handleVerification);
 
-  // Handle back button click
   backButton?.addEventListener("click", () => {
     history.back();
   });
 
-  // Handle enter key press
   searchInput?.addEventListener("keypress", (e) => {
     if (e.key === "Enter" && !verifyButton.disabled) {
       handleVerification();
     }
   });
 
-  // Error handling utility
+  // Error handling
   const handleError = (error, customMessage = "An error occurred") => {
     console.error(error);
     errorMessage.textContent = customMessage;
@@ -202,7 +276,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     toggleLoading(false);
   };
 
-  // Add some basic error handlers
   window.addEventListener("unhandledrejection", (event) => {
     handleError(
       event.reason,
@@ -210,7 +283,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
   });
 
-  // Handle network errors
   window.addEventListener("offline", () => {
     handleError(
       new Error("Network offline"),

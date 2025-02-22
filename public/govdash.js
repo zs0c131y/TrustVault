@@ -1023,22 +1023,42 @@ window.verifyDocument = async function (docId, type) {
       }
     } else {
       // Document verification handling
-      const response = await fetch("/api/complete-document-verification", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          documentId: docId,
-          type: "document",
-          verificationNotes: notes,
-          // Don't generate IPFS hash here as it's handled server-side
-        }),
-      });
+      try {
+        showToast("Processing document verification...", "info");
 
-      if (!response.ok) {
-        throw new Error(`Document verification failed: ${response.statusText}`);
+        // Send complete verification data
+        const response = await fetch("/api/complete-document-verification", {
+          method: "POST",
+          headers: {
+            ...getAuthHeaders(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            documentId: docId,
+            verificationNotes: notes,
+            documentData: currentVerificationDoc, // Include the full document data
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Document verification failed: ${response.statusText}`
+          );
+        }
+
+        const result = await response.json();
+
+        if (result.success && result.data?.ipfsHash) {
+          showToast("Document verified and stored on IPFS successfully!");
+          console.log("IPFS Hash:", result.data.ipfsHash);
+        } else {
+          throw new Error(result.error || "Verification failed");
+        }
+      } catch (error) {
+        console.error("Document verification error:", error);
+        showToast(`Verification failed: ${error.message}`, "error");
+        throw error;
       }
-
-      showToast("Document verified successfully");
     }
 
     // Reset current verification doc

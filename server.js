@@ -596,7 +596,7 @@ app.get("/api/property/search-by-hash/:hash", async (req, res) => {
   }
 });
 
-// Search by blockchain ID
+// Search property by blockchain ID
 app.get(
   "/api/property/search-by-blockchain-id/:blockchainId",
   async (req, res) => {
@@ -705,60 +705,142 @@ app.get(
   }
 );
 
-// Get verification status by IPFS hash
-app.get("/api/verify-document/:ipfsHash", async (req, res) => {
-  try {
-    const { ipfsHash } = req.params;
-    Logger.info("Checking verification status for IPFS hash:", ipfsHash);
+// Search document by blockchain ID
+app.get(
+  "/api/document/search-by-blockchain-id/:blockchainId",
+  async (req, res) => {
+    try {
+      const { blockchainId } = req.params;
+      Logger.info("Searching for document with blockchain ID:", blockchainId);
 
-    // Search in verificationRequests first
-    const verificationDoc = await db
+      // First search in blockchainTxns collection
+      const document = await db.collection("blockchainTxns").findOne({
+        $or: [
+          { currentBlockchainId: blockchainId },
+          { "blockchainIds.id": blockchainId },
+        ],
+        type: "DOCUMENT_VERIFICATION", // Add this to specifically find documents
+      });
+
+      if (!document) {
+        Logger.warn("No document found with blockchain ID:", blockchainId);
+        return res.status(404).json({
+          success: false,
+          error: "Document not found",
+        });
+      }
+
+      // Get additional verification details if available
+      const verificationDetails = await db
+        .collection("verificationRequests")
+        .findOne({
+          requestId: document.requestId,
+        });
+
+      // Format the response
+      const response = {
+        success: true,
+        data: {
+          _id: document._id,
+          requestId: document.requestId,
+          currentBlockchainId: document.currentBlockchainId,
+          isVerified: document.isVerified || false,
+          documentType: document.documentType,
+          owner: document.owner,
+          ipfsHash: document.ipfsHash,
+          verifiedAt: document.verifiedAt,
+          verifiedBy: document.verifiedBy,
+          transactions: document.transactions.map((tx) => ({
+            ...tx,
+            timestamp: tx.timestamp ? new Date(tx.timestamp).getTime() : null,
+          })),
+          blockchainIds: document.blockchainIds,
+          // Add verification details if available
+          ...(verificationDetails && {
+            personalInfo: verificationDetails.personalInfo,
+            verificationStatus: verificationDetails.status,
+            submissionDate: verificationDetails.submissionDate,
+            verificationSteps: verificationDetails.verificationSteps,
+          }),
+        },
+      };
+
+      return res.json(response);
+    } catch (error) {
+      Logger.error("Error searching document by blockchain ID:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    }
+  }
+);
+
+// Search document by IPFS hash
+app.get("/api/document/search-by-ipfs-hash/:hash", async (req, res) => {
+  try {
+    const { hash } = req.params;
+    Logger.info("Searching for document with IPFS hash:", hash);
+
+    // First search in blockchainTxns collection
+    const document = await db.collection("blockchainTxns").findOne({
+      ipfsHash: hash,
+      type: "DOCUMENT_VERIFICATION", // Add this to specifically find documents
+    });
+
+    if (!document) {
+      Logger.warn("No document found with IPFS hash:", hash);
+      return res.status(404).json({
+        success: false,
+        error: "Document not found",
+      });
+    }
+
+    // Get additional verification details if available
+    const verificationDetails = await db
       .collection("verificationRequests")
       .findOne({
-        ipfsHash: ipfsHash,
+        requestId: document.requestId,
       });
 
-    if (verificationDoc) {
-      return res.json({
-        success: true,
-        isVerified: verificationDoc.status === "completed",
-        documentType: verificationDoc.documentType,
-        verificationDate: verificationDoc.verifiedAt,
-        verifiedBy: verificationDoc.verifiedBy,
-        blockchainId: verificationDoc.blockchainId,
-        transactionHash: verificationDoc.transactionHash,
-        requestId: verificationDoc.requestId,
-      });
-    }
+    // Format the response consistently with other document endpoints
+    const response = {
+      success: true,
+      data: {
+        _id: document._id,
+        requestId: document.requestId,
+        currentBlockchainId: document.currentBlockchainId,
+        isVerified: document.isVerified || false,
+        documentType: document.documentType,
+        owner: document.owner,
+        ipfsHash: document.ipfsHash,
+        verifiedAt: document.verifiedAt,
+        verifiedBy: document.verifiedBy,
+        transactions: document.transactions.map((tx) => ({
+          ...tx,
+          timestamp: tx.timestamp ? new Date(tx.timestamp).getTime() : null,
+        })),
+        blockchainIds: document.blockchainIds,
+        // Add verification details if available
+        ...(verificationDetails && {
+          personalInfo: verificationDetails.personalInfo,
+          verificationStatus: verificationDetails.status,
+          submissionDate: verificationDetails.submissionDate,
+          verificationSteps: verificationDetails.verificationSteps,
+        }),
+      },
+    };
 
-    // If not found in verificationRequests, check blockchainTxns
-    const registrationDoc = await db.collection("blockchainTxns").findOne({
-      ipfsHash: ipfsHash,
-    });
-
-    if (registrationDoc) {
-      return res.json({
-        success: true,
-        isVerified: registrationDoc.status === "completed",
-        documentType: "property_registration",
-        verificationDate: registrationDoc.verifiedAt,
-        verifiedBy: registrationDoc.verifiedBy,
-        blockchainId: registrationDoc.blockchainInfo?.blockchainId,
-        transactionHash: registrationDoc.blockchainInfo?.transactionHash,
-        propertyId: registrationDoc.propertyInfo?.propertyId,
-      });
-    }
-
-    // If not found in either, return not found
-    return res.status(404).json({
-      success: false,
-      error: "Document not found with provided IPFS hash",
-    });
+    return res.json(response);
   } catch (error) {
-    Logger.error("Error checking verification status:", error);
-    res.status(500).json({
+    Logger.error("Error searching document by IPFS hash:", error);
+    return res.status(500).json({
       success: false,
-      error: "Failed to check verification status",
+      error: "Internal server error",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
@@ -2439,6 +2521,7 @@ app.get("/api/document/:requestId", enhancedVerifyToken, async (req, res) => {
       submissionDate: verificationRequest.submissionDate,
       verificationDate: blockchainDoc?.validTill,
       blockchainId: blockchainDoc?.currentBlockchainId,
+      ipfsHash: blockchainDoc?.ipfsHash,
       transactionHash:
         blockchainDoc?.transactions?.[blockchainDoc.transactions.length - 1]
           ?.transactionHash,
@@ -3250,41 +3333,69 @@ app.post(
           });
         }
 
+        // Prepare document data for IPFS
+        const documentData = {
+          requestId: documentId,
+          type: "document",
+          verificationDate: new Date(),
+          verifier: req.user.email,
+          verificationNotes: verificationNotes,
+          originalData: document,
+          metadata: {
+            source: "TrustVault Document Verification",
+            timestamp: new Date().toISOString(),
+            version: "1.0",
+            verified: true,
+            verifier: req.user.email,
+            verificationDate: new Date().toISOString(),
+          },
+        };
+
         // Connect to IPFS and upload document
         let ipfsHash = null;
         try {
+          Logger.info("Connecting to IPFS...");
           const ipfs = create({
             host: "localhost",
             port: 5001,
             protocol: "http",
           });
 
-          const documentData = {
-            documentId: documentId,
-            type: "document",
-            verificationDate: new Date(),
-            verifier: req.user.email,
-            verificationNotes: verificationNotes,
-            originalData: document,
+          // Convert document data to Buffer
+          const documentBuffer = Buffer.from(
+            JSON.stringify(documentData, null, 2)
+          );
+
+          // Add to IPFS with specific options
+          const addOptions = {
+            pin: true, // Ensure the file is pinned
+            wrapWithDirectory: true, // Wrap in directory for better organization
+            timeout: 60000, // 60 second timeout
           };
 
-          const ipfsResult = await ipfs.add(
+          Logger.info("Uploading to IPFS...");
+          const result = await ipfs.add(
             {
               path: `document_${documentId}`,
-              content: Buffer.from(JSON.stringify(documentData)),
+              content: documentBuffer,
             },
-            {
-              pin: true,
-              wrapWithDirectory: true,
-            }
+            addOptions
           );
-          ipfsHash = ipfsResult.path;
-          Logger.success("Document uploaded to IPFS:", ipfsHash);
+
+          // Ensure the file is pinned
+          if (result && result.cid) {
+            await ipfs.pin.add(result.cid);
+            ipfsHash = result.cid.toString();
+            Logger.success("Document uploaded and pinned to IPFS:", ipfsHash);
+          } else {
+            throw new Error("Failed to get IPFS hash from upload");
+          }
         } catch (ipfsError) {
           Logger.error("IPFS upload error:", ipfsError);
+          throw ipfsError;
         }
 
-        // Get blockchain transaction details
+        // Get blockchain transaction details if they exist
         const blockchainDoc = await db.collection("blockchainTxns").findOne({
           requestId: documentId,
         });
