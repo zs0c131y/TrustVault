@@ -3410,8 +3410,13 @@ app.post(
     const session = await client.startSession();
 
     try {
-      const { documentId, type, verificationNotes, blockchainTransaction } =
-        req.body;
+      const {
+        documentId,
+        type,
+        verificationNotes,
+        blockchainTransaction,
+        currentBlockchainId,
+      } = req.body;
       Logger.info("Processing verification completion:", { documentId, type });
 
       if (!documentId || !type) {
@@ -3424,7 +3429,9 @@ app.post(
       // For property verification, require blockchain transaction details
       if (
         (type === "registration" || type === "transfer") &&
-        (!blockchainTransaction || !blockchainTransaction.transactionHash)
+        (!blockchainTransaction ||
+          !blockchainTransaction.transactionHash ||
+          !currentBlockchainId)
       ) {
         return res.status(400).json({
           success: false,
@@ -3490,6 +3497,7 @@ app.post(
             verifiedBy: req.user.email,
             transactionHash: blockchainTransaction.transactionHash,
             blockNumber: blockchainTransaction.blockNumber,
+            currentBlockchainId: currentBlockchainId,
             lastVerification: {
               timestamp: new Date(),
               verifier: req.user.email,
@@ -3516,7 +3524,7 @@ app.post(
                 verifiedAt: new Date(),
                 verifiedBy: req.user.email,
                 propertyId: document.propertyInfo.propertyId,
-                currentBlockchainId: document.blockchainInfo?.blockchainId,
+                currentBlockchainId: currentBlockchainId,
                 lastModified: new Date(),
                 type: type.toUpperCase(),
               },
@@ -3559,7 +3567,7 @@ app.post(
             id: document._id.toString(),
             documentType: type,
             verificationDate: new Date(),
-            blockchainId: document.blockchainInfo?.blockchainId,
+            blockchainId: currentBlockchainId,
             transactionHash: blockchainTransaction?.transactionHash,
           },
           details: {

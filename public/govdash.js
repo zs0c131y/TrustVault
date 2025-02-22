@@ -966,51 +966,29 @@ window.verifyDocument = async function (docId, type) {
         const contractAddress =
           currentVerificationDoc?.blockchainDetails?.contractAddress;
 
-        // Get existing blockchain IDs
-        const existingBlockchainIds =
-          currentVerificationDoc?.blockchainIds || [];
-        const latestBlockchainId =
-          existingBlockchainIds.length > 0
-            ? existingBlockchainIds[existingBlockchainIds.length - 1].id
-            : contractAddress;
-
-        if (!propertyId || !latestBlockchainId) {
+        if (!propertyId || !contractAddress) {
           throw new Error("Missing property or blockchain details");
         }
 
         showToast("Connecting to blockchain...", "info");
         const blockchainResult = await verifyPropertyOnBlockchain(
           propertyId,
-          latestBlockchainId
+          contractAddress
         );
 
         if (!blockchainResult.success) {
           throw new Error("Blockchain verification failed");
         }
 
-        // Create new blockchain ID entry
-        const newBlockchainId = {
-          id: latestBlockchainId,
-          txHash: blockchainResult.transactionHash,
-          timestamp: new Date().toISOString(),
-        };
-
-        // Add new ID to blockchain IDs array and update current ID
-        const updatedBlockchainIds = [
-          ...existingBlockchainIds,
-          newBlockchainId,
-        ];
-
-        // Create server transaction object
+        // Create server transaction object with currentBlockchainId
         const serverTransaction = {
           transactionHash: blockchainResult.transactionHash,
           blockNumber: blockchainResult.blockNumber,
           gasUsed: blockchainResult.gasUsed,
           status: blockchainResult.status,
-          blockchainId: latestBlockchainId,
         };
 
-        // Update server with synchronized IDs
+        // Update server with blockchain transaction and ID
         const response = await fetch("/api/complete-property-verification", {
           method: "POST",
           headers: getAuthHeaders(),
@@ -1019,12 +997,10 @@ window.verifyDocument = async function (docId, type) {
             type: type,
             verificationNotes: notes,
             blockchainTransaction: serverTransaction,
-            blockchainIds: updatedBlockchainIds,
-            currentBlockchainId: latestBlockchainId, // Same ID as in the latest blockchain entry
+            currentBlockchainId: contractAddress, // Add this explicitly
             updates: {
               $set: {
-                currentBlockchainId: latestBlockchainId, // Explicitly set currentBlockchainId
-                blockchainIds: updatedBlockchainIds,
+                currentBlockchainId: contractAddress,
                 lastModified: new Date().toISOString(),
               },
             },
@@ -1054,6 +1030,7 @@ window.verifyDocument = async function (docId, type) {
           documentId: docId,
           type: "document",
           verificationNotes: notes,
+          // Don't generate IPFS hash here as it's handled server-side
         }),
       });
 
