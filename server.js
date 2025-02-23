@@ -3291,6 +3291,7 @@ app.post("/api/sync-blockchain", enhancedVerifyToken, async (req, res) => {
 });
 
 // Document verification route
+// Document verification route
 app.post(
   "/api/complete-document-verification",
   enhancedVerifyToken,
@@ -3460,6 +3461,46 @@ app.post(
             { session }
           );
         }
+
+        // Create activity entry
+        const activityEntry = {
+          activityType: "DOCUMENT_VERIFICATION",
+          status: "VERIFIED",
+          timestamp: new Date(),
+          user: {
+            email: req.user.email,
+            role: "government_official",
+          },
+          document: {
+            id: document._id.toString(),
+            requestId: documentId,
+            type: document.personalInfo?.documentType || "Not Specified",
+            ipfsHash: ipfsHash,
+          },
+          transaction: {
+            id: document._id.toString(),
+            documentType: "document",
+            verificationDate: new Date(),
+            ipfsHash: ipfsHash,
+            blockchainId: blockchainDoc?.currentBlockchainId,
+            transactionHash: blockchainDoc?.transactions?.[0]?.transactionHash,
+          },
+          details: {
+            description: "Document verified and stored on IPFS",
+            notes: verificationNotes,
+            ipAddress: req.ip,
+          },
+          metadata: {
+            createdAt: new Date(),
+            lastModified: new Date(),
+            sourcePage: "govdash",
+            verificationFlow: true,
+          },
+        };
+
+        await db
+          .collection("recentActivity")
+          .insertOne(activityEntry, { session });
 
         // Create audit log entry
         await db.collection("auditLog").insertOne(

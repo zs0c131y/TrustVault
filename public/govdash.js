@@ -280,20 +280,34 @@ window.rejectCurrentDocument = function () {
 };
 
 window.closeModal = function (modalId) {
-  document.getElementById("modalBackdrop")?.classList.add("hidden");
   const modal = document.getElementById(modalId);
   if (modal) {
+    // Clean up any blob URLs in images
+    const images = modal.getElementsByTagName("img");
+    for (const img of images) {
+      if (img.src.startsWith("blob:")) {
+        URL.revokeObjectURL(img.src);
+      }
+    }
+
+    // Clean up any blob URLs in iframes
+    const iframes = modal.getElementsByTagName("iframe");
+    for (const iframe of iframes) {
+      if (iframe.src.startsWith("blob:")) {
+        URL.revokeObjectURL(iframe.src);
+      }
+    }
+
+    // Hide modal
     modal.style.display = "none";
+    document.getElementById("modalBackdrop")?.classList.add("hidden");
 
     // Only reset currentVerificationDoc if explicitly requested
-    // This prevents accidental resets when clicking outside the modal
     if (
       modalId === "propertyVerificationModal" &&
       modal.dataset.resetVerification === "true"
     ) {
       currentVerificationDoc = null;
-      console.log("Reset currentVerificationDoc");
-      // Reset the flag
       modal.dataset.resetVerification = "false";
     }
   }
@@ -564,145 +578,100 @@ window.switchVerificationTab = function (tabName) {
 
 // Function to generate document verification content
 function generateDocumentVerificationContent(doc) {
+  console.log("Processing document:", doc);
   return `
-    <div class="document-verification-details">
-      <!-- Personal Information Section -->
-      <div class="section mb-6">
-        <h3 class="text-lg font-medium mb-4">Personal Information</h3>
-        <div class="detail-row">
-          <div class="detail-item">
-            <label>Name:</label>
-            <span>${doc.personalInfo?.firstName} ${
+      <div class="document-verification-details">
+          <!-- Personal Information Section -->
+          <div class="section mb-6">
+              <h3 class="text-lg font-medium mb-4">Personal Information</h3>
+              <div class="detail-row">
+                  <div class="detail-item">
+                      <label>Name:</label>
+                      <span>${doc.personalInfo?.firstName} ${
     doc.personalInfo?.lastName
   }</span>
-          </div>
-          <div class="detail-item">
-            <label>Email:</label>
-            <span>${doc.personalInfo?.email || "N/A"}</span>
-          </div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-item">
-            <label>Document Type:</label>
-            <span>${doc.documentType || "N/A"}</span>
-          </div>
-          <div class="detail-item">
-            <label>Submission Date:</label>
-            <span>${new Date(doc.submissionDate).toLocaleDateString()}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Document Preview Section -->
-      <div class="section mb-6">
-        <h3 class="text-lg font-medium mb-4">Document Preview</h3>
-        <div class="document-preview">
-          ${Object.entries(doc.documents || {})
-            .map(
-              ([key, value]) => `
-              <div class="document-item p-2 border rounded mb-2 flex justify-between items-center">
-                <span>${key.replace(/([A-Z])/g, " $1").trim()}</span>
-                <button onclick="window.viewVerificationDocument('${
-                  doc.requestId
-                }', '${key}')" class="btn-secondary">
-                  <i class="fas fa-eye"></i> View
-                </button>
-              </div>
-            `
-            )
-            .join("")}
-        </div>
-      </div>
-
-      <!-- Verification Status Section -->
-      <div class="section mb-6">
-        <h3 class="text-lg font-medium mb-4">Verification Status</h3>
-        <div class="verification-steps">
-          ${doc.verificationSteps
-            .map(
-              (step) => `
-              <div class="verification-step ${step.status}">
-                <div class="step-icon">
-                  ${getStepStatusIcon(step.status)}
-                </div>
-                <div class="step-details">
-                  <div class="step-name capitalize">${step.step.replace(
-                    /_/g,
-                    " "
-                  )}</div>
-                  <div class="step-timestamp text-gray">
-                    ${
-                      step.timestamp
-                        ? new Date(step.timestamp).toLocaleString()
-                        : "Pending"
-                    }
                   </div>
-                </div>
+                  <div class="detail-item">
+                      <label>Email:</label>
+                      <span>${doc.personalInfo?.email || "N/A"}</span>
+                  </div>
               </div>
-            `
-            )
-            .join("")}
-        </div>
-      </div>
-
-      <!-- Blockchain Information -->
-      <div class="section mb-6">
-        <h3 class="text-lg font-medium mb-4">Blockchain Information</h3>
-        <div class="blockchain-info p-4 bg-darker rounded">
-          <div class="detail-row">
-            <span class="detail-label">IPFS Hash:</span>
-            <span class="detail-value">${
-              doc.blockchainDetails?.transactionHash || "N/A"
-            }</span>
+              <div class="detail-row">
+                  <div class="detail-item">
+                      <label>Document Type:</label>
+                      <span>${doc.documentType || "N/A"}</span>
+                  </div>
+                  <div class="detail-item">
+                      <label>Submission Date:</label>
+                      <span>${new Date(
+                        doc.submissionDate
+                      ).toLocaleDateString()}</span>
+                  </div>
+              </div>
           </div>
-          <div class="detail-row">
-            <span class="detail-label">Blockchain ID:</span>
-            <span class="detail-value">${
-              doc.blockchainDetails?.contractAddress || "N/A"
-            }</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Verification Status:</span>
-            <span class="status status-${
-              doc.isVerified ? "verified" : "pending"
-            }">
-              ${doc.isVerified ? "Verified" : "Pending"}
-            </span>
-          </div>
-        </div>
-      </div>
 
-      <!-- Verification Notes -->
-      <div class="verification-notes mt-4 mb-6">
-        <h3 class="text-lg font-medium mb-2">Verification Notes</h3>
-        <textarea 
-          id="verificationNotes" 
-          class="w-full p-2 mt-2 bg-darker border rounded" 
-          rows="4" 
-          placeholder="Add your verification notes here..."
-        ></textarea>
-      </div>
+          <!-- Document Preview Section -->
+          <div class="section mb-6">
+              <h3 class="text-lg font-medium mb-4">Document Preview</h3>
+              <div class="document-preview">
+                  ${Object.entries(doc.documents || {})
+                    .map(([key, value]) => {
+                      console.log("Processing document:", key, value);
+                      const isImage = isImageFile(key, value.mimetype, value);
+                      return `
+                          <div class="document-item p-2 border rounded mb-2 flex justify-between items-center">
+                              <span>${key
+                                .replace(/([A-Z])/g, " $1")
+                                .trim()}</span>
+                              <button 
+                                  class="btn-secondary"
+                                  onclick="viewVerificationDocument('${
+                                    doc.requestId
+                                  }', '${key}', '${
+                        value.mimetype
+                      }', ${JSON.stringify(value).replace(/"/g, "&quot;")})">
+                                  <i class="fas fa-eye"></i> View ${
+                                    isImage ? "Image" : "Document"
+                                  }
+                              </button>
+                          </div>
+                      `;
+                    })
+                    .join("")}
+              </div>
+          </div>
 
-      <!-- Verification Buttons -->
-      <div class="verification-form border-t">
-        <div class="button-group mt-4">
-          <button class="btn-primary" onclick="verifyDocument('${
-            doc.requestId
-          }', 'document')">
-            <i class="fas fa-check"></i> Approve & Verify
-          </button>
-          <button class="btn-secondary" onclick="rejectDocument('${
-            doc.requestId
-          }')">
-            <i class="fas fa-times"></i> Reject
-          </button>
-          <button class="btn-secondary" onclick="closeModal('verificationModal')">
-            <i class="fas fa-times"></i> Cancel
-          </button>
-        </div>
+          <!-- Verification Buttons -->
+          <div class="verification-form mt-4">
+              <div class="button-group">
+                  <button class="btn-primary" onclick="verifyDocument('${
+                    doc.requestId
+                  }', 'document')">
+                      <i class="fas fa-check"></i> Approve & Verify
+                  </button>
+                  <button class="btn-secondary" onclick="rejectDocument('${
+                    doc.requestId
+                  }')">
+                      <i class="fas fa-times"></i> Reject
+                  </button>
+                  <button class="btn-secondary" onclick="closeModal('verificationModal')">
+                      <i class="fas fa-times"></i> Cancel
+                  </button>
+              </div>
+          </div>
       </div>
-    </div>
   `;
+}
+
+// Helper function to safely stringify object for HTML attributes
+function safeStringify(obj) {
+  if (!obj) return "{}";
+  return JSON.stringify(obj)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 // Helper function for step status icons
@@ -825,6 +794,7 @@ window.generateOwnerInfo = function (doc) {
   `;
 };
 
+// Generate documents list
 window.generateDocumentsList = function (doc) {
   const documents = doc.documents || {};
 
@@ -833,18 +803,23 @@ window.generateDocumentsList = function (doc) {
       ${
         Object.keys(documents).length
           ? Object.entries(documents)
-              .map(
-                ([key, value]) => `
+              .map(([key, value]) => {
+                const isImage = isImageFile(key, undefined, value);
+                const buttonText = isImage ? "View Image" : "View Document";
+                const buttonIcon = isImage ? "image" : "file-pdf";
+
+                return `
               <div class="document-item p-2 border rounded mb-2 flex justify-between items-center">
                 <span>${key.replace(/([A-Z])/g, " $1").trim()}</span>
                 <button onclick="window.viewDocument('${
                   doc.propertyId
-                }', '${key}', '${doc.type}')" class="btn-secondary">
-                  <i class="fas fa-eye"></i> View
+                }', '${key}', '${doc.type}')" 
+                        class="btn-secondary">
+                  <i class="fas fa-${buttonIcon}"></i> ${buttonText}
                 </button>
               </div>
-            `
-              )
+            `;
+              })
               .join("")
           : '<p class="text-center p-4">No documents available</p>'
       }
@@ -896,10 +871,102 @@ window.generateBlockchainInfo = function (doc) {
   `;
 };
 
-// Document viewer
+// Helper function to detect if a file is an image based on name/type
+function isImageFile(filename, contentType, documentMetadata = null) {
+  console.log("=== File Type Detection ===");
+  console.log("Filename:", filename);
+  console.log("Content-Type:", contentType);
+  console.log("Document Metadata:", documentMetadata);
+
+  const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"];
+  const imageMimeTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/bmp",
+    "image/webp",
+  ];
+
+  // Check filename from metadata
+  const originalName = documentMetadata?.originalName?.toLowerCase() || "";
+  const originalMimeType = documentMetadata?.mimetype || "";
+  const filePath =
+    typeof documentMetadata === "string" ? documentMetadata.toLowerCase() : "";
+
+  console.log("Original filename:", originalName);
+  console.log("Original mimetype:", originalMimeType);
+  console.log("File path:", filePath);
+
+  const hasImageExtension = imageExtensions.some(
+    (ext) =>
+      originalName.endsWith(ext) ||
+      filename.toLowerCase().endsWith(ext) ||
+      filePath.endsWith(ext)
+  );
+
+  const isImageMimeType =
+    imageMimeTypes.includes(originalMimeType) ||
+    imageMimeTypes.includes(contentType);
+
+  console.log("Has image extension:", hasImageExtension);
+  console.log("Has image MIME type:", isImageMimeType);
+
+  const isImage = hasImageExtension || isImageMimeType;
+  console.log("Final determination - Is Image:", isImage);
+
+  return isImage;
+}
+
+async function viewDocument(url, headers) {
+  try {
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        return;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const contentType = response.headers.get("content-type");
+    const blob = await response.blob();
+
+    // Create a blob URL with the correct content type
+    const blobUrl = URL.createObjectURL(
+      new Blob([blob], { type: contentType })
+    );
+    const newTab = window.open(blobUrl, "_blank");
+
+    // Clean up the blob URL after the new tab loads
+    if (newTab) {
+      newTab.addEventListener(
+        "load",
+        () => {
+          URL.revokeObjectURL(blobUrl);
+        },
+        { once: true }
+      );
+    }
+  } catch (error) {
+    console.error("Error viewing document:", error);
+    showToast("Failed to load document", "error");
+  }
+}
+
+// Function for viewing property documents
 window.viewDocument = async function (propertyId, docKey, type) {
   try {
+    console.log("Viewing property document:", { propertyId, docKey, type });
     const url = `/api/property/${propertyId}/document/${docKey}/view?type=${type}`;
+
+    // Get document metadata first
+    const docMetadata = currentVerificationDoc?.documents?.[docKey];
+    const isImage = isImageFile(docKey, undefined, docMetadata);
+
+    console.log("Document metadata:", docMetadata);
+    console.log("Is image:", isImage);
+
     const response = await fetch(url, {
       headers: getAuthHeaders(),
     });
@@ -912,16 +979,96 @@ window.viewDocument = async function (propertyId, docKey, type) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
+    const contentType = response.headers.get("content-type");
     const blob = await response.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-    window.open(blobUrl, "_blank");
+
+    // Determine the correct content type
+    let effectiveContentType;
+    if (isImage) {
+      // For images, try to determine the correct image MIME type from the file extension
+      if (
+        docKey.toLowerCase().endsWith(".jpg") ||
+        docKey.toLowerCase().endsWith(".jpeg")
+      ) {
+        effectiveContentType = "image/jpeg";
+      } else if (docKey.toLowerCase().endsWith(".png")) {
+        effectiveContentType = "image/png";
+      } else {
+        effectiveContentType = "image/jpeg"; // default to JPEG if unknown
+      }
+    } else {
+      effectiveContentType = "application/pdf"; // default to PDF for documents
+    }
+
+    console.log("Using content type:", effectiveContentType);
+
+    // Create blob with correct content type
+    const blobUrl = URL.createObjectURL(
+      new Blob([blob], { type: effectiveContentType })
+    );
+    const newTab = window.open(blobUrl, "_blank");
+
+    // Clean up blob URL after new tab loads
+    if (newTab) {
+      newTab.addEventListener(
+        "load",
+        () => {
+          URL.revokeObjectURL(blobUrl);
+        },
+        { once: true }
+      );
+    }
   } catch (error) {
     console.error("Error viewing document:", error);
     showToast("Failed to load document", "error");
   }
 };
 
-// Add this function at the top to handle ID conversion
+// Function for viewing verification documents
+const viewVerificationDocument = async function (
+  requestId,
+  documentKey,
+  documentType = "",
+  documentMetadata = null
+) {
+  const url = `/api/verification-requests/${requestId}/document/${documentKey}`;
+  await viewDocument(url, getAuthHeaders());
+};
+
+// Helper function to display image in modal
+function displayImageInModal(blob, title) {
+  const imageUrl = URL.createObjectURL(blob);
+
+  const modalHtml = `
+      <div id="imageViewerModal" class="fixed inset-0 flex items-center justify-center z-50 p-4">
+          <div class="modal-content bg-gray-900 rounded-lg overflow-hidden max-w-4xl w-full">
+              <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                  <h3 class="text-lg font-medium">${title}</h3>
+                  <button onclick="closeImageModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+              </div>
+              <div class="p-4">
+                  <img src="${imageUrl}" alt="${title}" class="max-w-full max-h-[80vh] object-contain mx-auto">
+              </div>
+          </div>
+      </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+}
+
+// Helper function to close image modal
+window.closeImageModal = function () {
+  const modal = document.getElementById("imageViewerModal");
+  if (modal) {
+    const img = modal.querySelector("img");
+    if (img && img.src) {
+      URL.revokeObjectURL(img.src);
+    }
+    modal.remove();
+  }
+};
+
+// Handle ID conversion
 function convertPropertyIdToHex(propertyId) {
   // Remove any non-alphanumeric characters
   const cleanId = propertyId.replace(/[^a-zA-Z0-9]/g, "");
@@ -1029,10 +1176,7 @@ window.verifyDocument = async function (docId, type) {
         // Send complete verification data
         const response = await fetch("/api/complete-document-verification", {
           method: "POST",
-          headers: {
-            ...getAuthHeaders(),
-            "Content-Type": "application/json",
-          },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             documentId: docId,
             verificationNotes: notes,
@@ -1413,23 +1557,47 @@ window.generateDocumentDetails = function (doc) {
 };
 
 // Add helper function to view verification documents
-window.viewVerificationDocument = async function (requestId, documentKey) {
+window.viewVerificationDocument = async function (
+  requestId,
+  documentKey,
+  documentType = "",
+  documentMetadata = null
+) {
   try {
-    const response = await fetch(
-      `/api/verification-requests/${requestId}/document/${documentKey}`,
-      {
-        headers: getAuthHeaders(),
-      }
-    );
+    const url = `/api/verification-requests/${requestId}/document/${documentKey}`;
+    const response = await fetch(url, {
+      headers: getAuthHeaders(),
+    });
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Create blob from response and open in new window
+    const contentType = response.headers.get("content-type");
     const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    window.open(url, "_blank");
+
+    console.log("Viewing document with content type:", contentType);
+
+    // Use the metadata's mimetype if available, otherwise use the response content type
+    const effectiveContentType = documentMetadata?.mimetype || contentType;
+    console.log("Using effective content type:", effectiveContentType);
+
+    // Create blob URL with the effective content type
+    const blobUrl = URL.createObjectURL(
+      new Blob([blob], { type: effectiveContentType })
+    );
+    const newTab = window.open(blobUrl, "_blank");
+
+    // Clean up blob URL after new tab loads
+    if (newTab) {
+      newTab.addEventListener(
+        "load",
+        () => {
+          URL.revokeObjectURL(blobUrl);
+        },
+        { once: true }
+      );
+    }
   } catch (error) {
     console.error("Error viewing document:", error);
     showToast("Failed to load document", "error");
@@ -1721,3 +1889,11 @@ if (logoutButton) {
 
 // Initial load
 updateDashboard();
+
+// Export functions
+export {
+  isImageFile,
+  viewDocument,
+  viewVerificationDocument,
+  generateDocumentVerificationContent,
+};
