@@ -230,7 +230,12 @@ async function fetchVerifiedDocuments() {
     } else {
       // Add each document card
       documents.forEach((doc) => {
-        documentsListDiv.appendChild(createDocumentCard(doc));
+        // Ensure the document has the correct date field
+        const docWithCorrectDate = {
+          ...doc,
+          verifiedAt: doc.verifiedAt || doc.verificationDate, // Try both fields
+        };
+        documentsListDiv.appendChild(createDocumentCard(docWithCorrectDate));
       });
     }
 
@@ -248,6 +253,21 @@ async function fetchVerifiedDocuments() {
   }
 }
 
+// Function to get only the verification date from blockchain document
+function getVerificationDate(blockchainDoc) {
+  // Return early if no document or not verified
+  if (!blockchainDoc || !blockchainDoc.isVerified) {
+    return "Pending verification";
+  }
+
+  // Use verifiedAt date if available
+  if (blockchainDoc.verifiedAt) {
+    return new Date(blockchainDoc.verifiedAt).toLocaleDateString();
+  }
+
+  return "Pending verification";
+}
+
 // Helper function to create document card HTML
 function createDocumentCard(doc) {
   const card = document.createElement("div");
@@ -257,11 +277,15 @@ function createDocumentCard(doc) {
     <div class="document-info">
       <h3>${doc.documentType}</h3>
       <p>Request ID: ${doc.requestId}</p>
-      <p>Verification Date: ${new Date(
-        doc.verificationDate
-      ).toLocaleDateString()}</p>
+      <p>Verification Date: ${
+        doc.verifiedAt
+          ? new Date(doc.verifiedAt).toLocaleDateString()
+          : "Pending verification"
+      }</p>
       <div class="blockchain-info">
-        Blockchain ID: ${doc.blockchainId || "Processing..."}
+        Blockchain ID: ${
+          doc.currentBlockchainId || doc.blockchainId || "Processing..."
+        }
       </div>
     </div>
     <div class="document-actions">

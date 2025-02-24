@@ -45,6 +45,19 @@ async function fetchDocumentDetails() {
   }
 }
 
+// Calculate valid until date (10 years from verification date)
+function calculateAndFormatValidUntil(verifiedAt) {
+  if (!verifiedAt) return "Pending Verification";
+
+  const verificationDate = new Date(verifiedAt);
+  if (isNaN(verificationDate.getTime())) return "Pending Verification";
+
+  const validUntil = new Date(verificationDate);
+  validUntil.setFullYear(validUntil.getFullYear() + 10);
+
+  return formatDate(validUntil);
+}
+
 function displayDocument(doc) {
   const content = `
     <div class="navigation">
@@ -76,13 +89,17 @@ function displayDocument(doc) {
           <p>${doc.isVerified ? "Verified" : "Pending Verification"}</p>
         </div>
         <div class="info-item">
-          <label>Submission Date</label>
-          <p>${formatDate(doc.submissionDate)}</p>
+          <label>Verification Date</label>
+          <p>${doc.verifiedAt ? formatDate(doc.verifiedAt) : "Pending"}</p>
         </div>
         <div class="info-item">
           <label>Valid Until</label>
           <p>${
-            doc.verificationDate ? formatDate(doc.verificationDate) : "Pending"
+            doc.validUntil
+              ? formatDate(doc.validUntil)
+              : doc.isVerified
+              ? calculateAndFormatValidUntil(doc.verifiedAt)
+              : "Pending Verification"
           }</p>
         </div>
       </div>
@@ -153,8 +170,6 @@ function formatDate(dateString) {
     year: "numeric",
     month: "long",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   }).format(date);
 }
 

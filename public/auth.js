@@ -102,6 +102,34 @@ const getDeviceInfo = () => {
   };
 };
 
+export const checkUserAccess = async () => {
+  try {
+    const token = getToken();
+    if (!token) return false;
+
+    const response = await fetch("/getUserData", {
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) return false;
+
+    const userData = await response.json();
+    const isGovUser =
+      userData.type === "government" || userData.email.endsWith("@gov.in");
+    const currentPath = window.location.pathname;
+
+    if (isGovUser && currentPath !== "/govdash.html") {
+      window.location.href = "/govdash.html";
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Access check failed:", error);
+    return false;
+  }
+};
+
 // Server synchronization
 const syncTokenWithServer = async (token) => {
   try {
@@ -321,13 +349,17 @@ export const logout = async () => {
 };
 
 // Initialize auth service
-export const initAuth = () => {
+export const initAuth = async () => {
   console.log("Initializing auth service in environment:", ENV);
-  console.log("Using storage keys:", STORAGE_KEYS);
   const token = getToken();
-  console.log("Found token:", token ? "yes" : "no");
+  if (!token) return false;
+
   setupTokenRefresh();
-  return isAuthenticated();
+  const isAuthed = await isAuthenticated();
+  if (isAuthed) {
+    return await checkUserAccess();
+  }
+  return false;
 };
 
 export { getDeviceInfo };

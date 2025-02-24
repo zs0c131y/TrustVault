@@ -641,6 +641,17 @@ function generateDocumentVerificationContent(doc) {
               </div>
           </div>
 
+          <!-- Verification Notes -->
+          <div class="verification-notes mt-6 mb-4">
+              <h3 class="text-lg font-medium mb-2">Verification Notes</h3>
+              <textarea 
+                  id="verificationNotes" 
+                  class="w-full p-3 bg-darker border border-gray-700 rounded-lg" 
+                  rows="4"
+                  placeholder="Add your verification notes here..."></textarea>
+              <p class="text-sm text-gray mt-2">Please provide detailed notes about your verification decision</p>
+          </div>
+
           <!-- Verification Buttons -->
           <div class="verification-form mt-4">
               <div class="button-group">
@@ -771,25 +782,70 @@ window.generatePropertyDetails = function (doc) {
 };
 
 window.generateOwnerInfo = function (doc) {
-  const owner = doc.ownerInfo || {};
+  // Get the correct owner info depending on document type
+  const isTransfer = doc.type === "transfer";
+  const currentOwner = isTransfer ? doc.currentOwnerInfo : doc.ownerInfo;
+  const newOwner = isTransfer ? doc.newOwnerInfo : null;
 
   return `
     <div class="owner-info">
-      <h3 class="mb-4">Owner Details</h3>
+      <h3 class="text-lg font-medium mb-4">${
+        isTransfer ? "Current Owner Details" : "Owner Details"
+      }</h3>
       <div class="grid grid-cols-2 gap-4">
         <div class="detail-item">
           <label>Name:</label>
-          <span>${owner.name || "N/A"}</span>
+          <span>${currentOwner?.firstName || ""} ${
+    currentOwner?.lastName || ""
+  }</span>
         </div>
         <div class="detail-item">
           <label>Email:</label>
-          <span>${owner.email || "N/A"}</span>
+          <span>${currentOwner?.email || "N/A"}</span>
         </div>
         <div class="detail-item">
           <label>ID Number:</label>
-          <span>${owner.idNumber || "N/A"}</span>
+          <span>${currentOwner?.idNumber || "N/A"}</span>
+        </div>
+        <div class="detail-item">
+          <label>Phone:</label>
+          <span>${currentOwner?.phone || "N/A"}</span>
         </div>
       </div>
+
+      ${
+        isTransfer && newOwner
+          ? `
+        <div class="mt-6 pt-6 border-t border-gray-700">
+          <h3 class="text-lg font-medium mb-4">New Owner Details</h3>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="detail-item">
+              <label>Name:</label>
+              <span>${newOwner.firstName || ""} ${
+              newOwner.lastName || ""
+            }</span>
+            </div>
+            <div class="detail-item">
+              <label>Email:</label>
+              <span>${newOwner.email || "N/A"}</span>
+            </div>
+            <div class="detail-item">
+              <label>ID Number:</label>
+              <span>${newOwner.idNumber || "N/A"}</span>
+            </div>
+            <div class="detail-item">
+              <label>Phone:</label>
+              <span>${newOwner.phone || "N/A"}</span>
+            </div>
+            <div class="detail-item">
+              <label>ETH Address:</label>
+              <span class="text-sm">${newOwner.ethAddress || "N/A"}</span>
+            </div>
+          </div>
+        </div>
+      `
+          : ""
+      }
     </div>
   `;
 };
@@ -1127,7 +1183,7 @@ window.verifyDocument = async function (docId, type) {
           throw new Error("Blockchain verification failed");
         }
 
-        // Create server transaction object with currentBlockchainId
+        // Create server transaction object
         const serverTransaction = {
           transactionHash: blockchainResult.transactionHash,
           blockNumber: blockchainResult.blockNumber,
@@ -1135,30 +1191,52 @@ window.verifyDocument = async function (docId, type) {
           status: blockchainResult.status,
         };
 
-        // Update server with blockchain transaction and ID
+        // Prepare verification data
+        const verificationData = {
+          documentId: docId,
+          type: type,
+          verificationNotes: notes,
+          blockchainTransaction: serverTransaction,
+          currentBlockchainId: contractAddress,
+        };
+
+        // For transfer requests, include owner information
+        if (type === "transfer") {
+          verificationData.currentOwnerInfo =
+            currentVerificationDoc.currentOwnerInfo;
+          verificationData.newOwnerInfo = currentVerificationDoc.newOwnerInfo;
+          verificationData.propertyInfo = {
+            propertyId: currentVerificationDoc.propertyId,
+            locality: currentVerificationDoc.location?.split(", ")[1] || "",
+            propertyType: currentVerificationDoc.propertyType,
+            propertyName: currentVerificationDoc.propertyName,
+          };
+        }
+
+        // Log the verification data being sent
+        console.log("Sending verification data:", verificationData);
+
+        // Update server with verification data
         const response = await fetch("/api/complete-property-verification", {
           method: "POST",
           headers: getAuthHeaders(),
-          body: JSON.stringify({
-            documentId: docId,
-            type: type,
-            verificationNotes: notes,
-            blockchainTransaction: serverTransaction,
-            currentBlockchainId: contractAddress, // Add this explicitly
-            updates: {
-              $set: {
-                currentBlockchainId: contractAddress,
-                lastModified: new Date().toISOString(),
-              },
-            },
-          }),
+          body: JSON.stringify(verificationData),
         });
 
         if (!response.ok) {
           throw new Error(`Server verification failed: ${response.statusText}`);
         }
 
-        showToast("Property verified successfully on blockchain!");
+        const result = await response.json();
+        if (result.success) {
+          showToast(
+            `${
+              type.charAt(0).toUpperCase() + type.slice(1)
+            } verified successfully!`
+          );
+        } else {
+          throw new Error(result.error || "Verification failed");
+        }
       } catch (error) {
         console.error("Property verification error:", error);
         if (error.message.includes("MetaMask")) {
@@ -1772,9 +1850,13 @@ async function updateActivityList() {
             <div class="flex-grow">
               <div class="flex justify-between items-start">
                 <div>
-                  <p class="font-medium">${activity.details.description}</p>
+                  <p class="font-medium">${
+                    activity.details?.description || "Activity performed"
+                  }</p>
                   <p class="text-sm text-gray mt-1">
-                    ${activity.property.name} - ${activity.property.location}
+                    ${activity.property?.name || ""} ${
+        activity.property?.location ? `- ${activity.property.location}` : ""
+      }
                   </p>
                 </div>
                 <span class="text-sm text-gray">
@@ -1782,8 +1864,10 @@ async function updateActivityList() {
                 </span>
               </div>
               <div class="mt-2">
-                <span class="status status-${activity.status.toLowerCase()}">
-                  ${activity.status}
+                <span class="status status-${(
+                  activity.status || "pending"
+                ).toLowerCase()}">
+                  ${activity.status || "PENDING"}
                 </span>
               </div>
             </div>

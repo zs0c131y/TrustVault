@@ -2464,7 +2464,7 @@ app.get("/api/list/document", enhancedVerifyToken, async (req, res) => {
       requestId: doc.requestId,
       documentType: doc.documentType || "Document",
       submissionDate: doc.submissionDate,
-      verificationDate: doc.lastUpdated,
+      verificationDate: doc.lastModified,
       blockchainId: doc.currentBlockchainId,
       status: doc.status,
     }));
@@ -2513,22 +2513,36 @@ app.get("/api/document/:requestId", enhancedVerifyToken, async (req, res) => {
       });
     }
 
+    // Get verification date from either source
+    const verifiedAt =
+      blockchainDoc?.verifiedAt || verificationRequest?.verifiedAt;
+    const isVerified =
+      blockchainDoc?.isVerified || verificationRequest?.isVerified || false;
+
     // Combine data from both sources
     const documentData = {
       requestId: requestId,
       documentType:
         verificationRequest.personalInfo?.documentType || "Document",
       submissionDate: verificationRequest.submissionDate,
-      verificationDate: blockchainDoc?.validTill,
-      blockchainId: blockchainDoc?.currentBlockchainId,
-      ipfsHash: blockchainDoc?.ipfsHash,
+      verifiedAt: verifiedAt, // Use verifiedAt instead of verificationDate
+      blockchainId:
+        blockchainDoc?.currentBlockchainId || verificationRequest?.blockchainId,
+      ipfsHash: blockchainDoc?.ipfsHash || verificationRequest?.ipfsHash,
       transactionHash:
         blockchainDoc?.transactions?.[blockchainDoc.transactions.length - 1]
-          ?.transactionHash,
-      isVerified: blockchainDoc?.isVerified || false,
-      status: blockchainDoc?.status || verificationRequest.status,
+          ?.transactionHash || verificationRequest?.transactionHash,
+      isVerified: isVerified,
+      status: isVerified ? "verified" : "pending",
       documentPath: verificationRequest.documents?.document1?.path,
     };
+
+    // Add validation data
+    if (isVerified && verifiedAt) {
+      const validUntil = new Date(verifiedAt);
+      validUntil.setFullYear(validUntil.getFullYear() + 10);
+      documentData.validUntil = validUntil;
+    }
 
     res.json({
       success: true,
@@ -2701,6 +2715,7 @@ app.get("/api/metrics", async (req, res) => {
 });
 
 // Get pending documents with blockchain details
+// Get pending documents with blockchain details
 app.get("/api/pending-requests", enhancedVerifyToken, async (req, res) => {
   try {
     const [registrations, transfers] = await Promise.all([
@@ -2721,83 +2736,6 @@ app.get("/api/pending-requests", enhancedVerifyToken, async (req, res) => {
                 },
               ],
               as: "blockchainDetails",
-            },
-          },
-          {
-            $project: {
-              _id: 1,
-              type: { $literal: "registration" },
-              propertyId: "$propertyInfo.propertyId",
-              propertyType: "$propertyInfo.propertyType",
-              propertyName: "$propertyInfo.propertyName",
-              street: "$propertyInfo.street",
-              locality: "$propertyInfo.locality",
-              city: "$propertyInfo.city",
-              state: "$propertyInfo.state",
-              pincode: "$propertyInfo.pincode",
-              landArea: "$propertyInfo.landArea",
-              builtUpArea: "$propertyInfo.builtUpArea",
-              classification: "$propertyInfo.classification",
-              transactionType: "$propertyInfo.transactionType",
-              purchaseValue: "$propertyInfo.purchaseValue",
-              stampDuty: "$propertyInfo.stampDuty",
-              plotNumber: "$propertyInfo.plotNumber",
-              documentPath: "$documents.saleDeed",
-              status: 1,
-              priority: 1,
-              createdAt: 1,
-              ownerInfo: 1,
-              documents: 1,
-              blockchainInfo: {
-                $cond: {
-                  if: { $gt: [{ $size: "$blockchainDetails" }, 0] },
-                  then: {
-                    $let: {
-                      vars: {
-                        lastTx: {
-                          $arrayElemAt: [
-                            {
-                              $slice: [
-                                {
-                                  $arrayElemAt: [
-                                    "$blockchainDetails.transactions",
-                                    0,
-                                  ],
-                                },
-                                -1,
-                              ],
-                            },
-                            0,
-                          ],
-                        },
-                      },
-                      in: {
-                        transactionHash: "$$lastTx.transactionHash",
-                        blockNumber: "$$lastTx.blockNumber",
-                        gasUsed: "$$lastTx.gasUsed",
-                        contractAddress: {
-                          $arrayElemAt: [
-                            "$blockchainDetails.currentBlockchainId",
-                            0,
-                          ],
-                        },
-                        timestamp: "$$lastTx.timestamp",
-                        isVerified: {
-                          $arrayElemAt: ["$blockchainDetails.isVerified", 0],
-                        },
-                      },
-                    },
-                  },
-                  else: {
-                    transactionHash: "$propertyInfo.transactionHash",
-                    blockNumber: null,
-                    gasUsed: null,
-                    contractAddress: "$propertyInfo.blockchainId",
-                    timestamp: "$createdAt",
-                    isVerified: false,
-                  },
-                },
-              },
             },
           },
         ])
@@ -2822,164 +2760,119 @@ app.get("/api/pending-requests", enhancedVerifyToken, async (req, res) => {
               as: "blockchainDetails",
             },
           },
-          {
-            $project: {
-              _id: 1,
-              type: { $literal: "transfer" },
-              propertyId: "$propertyInfo.propertyId",
-              propertyType: "$propertyInfo.propertyType",
-              propertyName: "$propertyInfo.propertyName",
-              street: "$propertyInfo.street",
-              locality: "$propertyInfo.locality",
-              city: "$propertyInfo.city",
-              state: "$propertyInfo.state",
-              pincode: "$propertyInfo.pincode",
-              landArea: "$propertyInfo.landArea",
-              builtUpArea: "$propertyInfo.builtUpArea",
-              classification: "$propertyInfo.classification",
-              transactionType: "$propertyInfo.transactionType",
-              purchaseValue: "$propertyInfo.purchaseValue",
-              stampDuty: "$propertyInfo.stampDuty",
-              plotNumber: "$propertyInfo.plotNumber",
-              documentPath: "$documents.transferDeed",
-              status: 1,
-              approvalStatus: 1,
-              createdAt: 1,
-              ownerInfo: "$currentOwnerInfo", // Note: different field name for transfers
-              documents: 1,
-              blockchainInfo: {
-                $cond: {
-                  if: { $gt: [{ $size: "$blockchainDetails" }, 0] },
-                  then: {
-                    $let: {
-                      vars: {
-                        lastTx: {
-                          $arrayElemAt: [
-                            {
-                              $slice: [
-                                {
-                                  $arrayElemAt: [
-                                    "$blockchainDetails.transactions",
-                                    0,
-                                  ],
-                                },
-                                -1,
-                              ],
-                            },
-                            0,
-                          ],
-                        },
-                      },
-                      in: {
-                        transactionHash: "$$lastTx.transactionHash",
-                        blockNumber: "$$lastTx.blockNumber",
-                        gasUsed: "$$lastTx.gasUsed",
-                        contractAddress: {
-                          $arrayElemAt: [
-                            "$blockchainDetails.currentBlockchainId",
-                            0,
-                          ],
-                        },
-                        timestamp: "$$lastTx.timestamp",
-                        isVerified: {
-                          $arrayElemAt: ["$blockchainDetails.isVerified", 0],
-                        },
-                      },
-                    },
-                  },
-                  else: {
-                    transactionHash: "$blockchainInfo.transactionHash",
-                    blockNumber: null,
-                    gasUsed: null,
-                    contractAddress: "$blockchainInfo.blockchainId",
-                    timestamp: "$createdAt",
-                    isVerified: false,
-                  },
-                },
-              },
-            },
-          },
         ])
         .toArray(),
     ]);
 
-    const requests = [...registrations, ...transfers].map((request) => {
-      // Format the location string
-      const location = [
-        request.street,
-        request.locality,
-        request.city,
-        request.state,
-        request.pincode,
-      ]
-        .filter(Boolean)
-        .join(", ");
+    // Format the requests
+    const formattedRequests = [...registrations, ...transfers].map(
+      (request) => {
+        // Format the location string
+        const location = [
+          request.propertyInfo?.street,
+          request.propertyInfo?.locality,
+          request.propertyInfo?.city,
+          request.propertyInfo?.state,
+          request.propertyInfo?.pincode,
+        ]
+          .filter(Boolean)
+          .join(", ");
 
-      // Get the latest blockchain transaction details
-      const blockchainDetails = {
-        transactionHash: request.blockchainInfo?.transactionHash || null,
-        blockNumber: request.blockchainInfo?.blockNumber || null,
-        gasUsed: request.blockchainInfo?.gasUsed || null,
-        verificationStatus: request.blockchainInfo?.isVerified
-          ? "Verified"
-          : "Pending",
-        timestamp: request.blockchainInfo?.timestamp || null,
-        contractAddress: request.blockchainInfo?.contractAddress || null,
-      };
+        // Get the latest blockchain transaction details
+        const blockchainDetails = {
+          transactionHash:
+            request.blockchainInfo?.transactionHash ||
+            request.blockchainDetails?.[0]?.transactions?.[0]
+              ?.transactionHash ||
+            null,
+          blockNumber:
+            request.blockchainInfo?.blockNumber ||
+            request.blockchainDetails?.[0]?.transactions?.[0]?.blockNumber ||
+            null,
+          gasUsed:
+            request.blockchainInfo?.gasUsed ||
+            request.blockchainDetails?.[0]?.transactions?.[0]?.gasUsed ||
+            null,
+          verificationStatus:
+            request.blockchainInfo?.isVerified ||
+            request.blockchainDetails?.[0]?.isVerified
+              ? "Verified"
+              : "Pending",
+          timestamp:
+            request.blockchainInfo?.timestamp ||
+            request.blockchainDetails?.[0]?.transactions?.[0]?.timestamp ||
+            request.createdAt,
+          contractAddress:
+            request.blockchainInfo?.blockchainId ||
+            request.propertyInfo?.blockchainId ||
+            request.blockchainDetails?.[0]?.currentBlockchainId ||
+            null,
+        };
 
-      // Log the blockchain details for debugging
-      Logger.info(
-        `Blockchain details for property ${request.propertyId}:`,
-        blockchainDetails
-      );
+        // Determine the type of request
+        const type =
+          request.registrationType ||
+          (request.currentOwnerInfo ? "transfer" : "registration");
 
-      return {
-        _id: request._id,
-        type: request.type,
-        propertyId: request.propertyId || "Unknown",
-        propertyType: request.propertyType || "Not specified",
-        propertyName: request.propertyName || "Not specified",
-        location: location || "Not specified",
-        landArea: request.landArea || "Not specified",
-        builtUpArea: request.builtUpArea || "Not specified",
-        classification: request.classification || "Not specified",
-        transactionType: request.transactionType || "Not specified",
-        purchaseValue: request.purchaseValue || "Not specified",
-        stampDuty: request.stampDuty || "Not specified",
-        plotNumber: request.plotNumber || "Not specified",
-        status: request.status || "pending",
-        priority: request.priority || request.approvalStatus || "normal",
-        createdAt: request.createdAt || new Date(),
-        documentPath: request.documentPath,
-        ownerInfo: {
-          name: request.ownerInfo
-            ? `${request.ownerInfo.firstName || ""} ${
-                request.ownerInfo.lastName || ""
-              }`.trim() || "Unknown"
-            : "Unknown",
-          email: request.ownerInfo?.email || "Not provided",
-          idType: request.ownerInfo?.idType || "Not specified",
-          idNumber: request.ownerInfo?.idNumber || "Not provided",
-        },
-        documents: request.documents || {},
-        blockchainDetails,
-      };
-    });
+        // Base request object
+        const formattedRequest = {
+          _id: request._id,
+          type: type,
+          propertyId: request.propertyInfo?.propertyId || "Unknown",
+          propertyType: request.propertyInfo?.propertyType || "Not specified",
+          propertyName: request.propertyInfo?.propertyName || "Not specified",
+          location: location || "Not specified",
+          landArea: request.propertyInfo?.landArea || "Not specified",
+          builtUpArea: request.propertyInfo?.builtUpArea || "Not specified",
+          classification:
+            request.propertyInfo?.classification || "Not specified",
+          transactionType:
+            request.propertyInfo?.transactionType || "Not specified",
+          purchaseValue: request.propertyInfo?.purchaseValue || "Not specified",
+          stampDuty: request.propertyInfo?.stampDuty || "Not specified",
+          plotNumber: request.propertyInfo?.plotNumber || "Not specified",
+          status: request.status || "pending",
+          priority: request.priority || "normal",
+          createdAt: request.createdAt || new Date(),
+          documentPath: request.documents?.saleDeed || null,
+          documents: request.documents || {},
+          blockchainDetails: blockchainDetails,
+        };
 
-    // Log the total number of requests and a sample for debugging
-    Logger.info(
-      `Found ${requests.length} total requests (${registrations.length} registrations, ${transfers.length} transfers)`
+        // Add owner information based on request type
+        if (type === "transfer") {
+          formattedRequest.currentOwnerInfo = request.currentOwnerInfo;
+          formattedRequest.newOwnerInfo = request.newOwnerInfo;
+        } else {
+          formattedRequest.ownerInfo = request.ownerInfo;
+        }
+
+        return formattedRequest;
+      }
     );
-    if (requests.length > 0) {
-      Logger.info("Request data:", {
-        propertyId: requests[0].propertyId,
-        blockchainDetails: requests[0].blockchainDetails,
+
+    Logger.info(
+      `Found ${formattedRequests.length} total requests (${registrations.length} registrations, ${transfers.length} transfers)`
+    );
+
+    // Log a sample request for debugging
+    if (formattedRequests.length > 0) {
+      Logger.info("Sample request data:", {
+        propertyId: formattedRequests[0].propertyId,
+        type: formattedRequests[0].type,
+        owners:
+          formattedRequests[0].type === "transfer"
+            ? {
+                current: formattedRequests[0].currentOwnerInfo?.email,
+                new: formattedRequests[0].newOwnerInfo?.email,
+              }
+            : formattedRequests[0].ownerInfo?.email,
       });
     }
 
     res.json({
-      requests,
-      total: requests.length,
+      requests: formattedRequests,
+      total: formattedRequests.length,
     });
   } catch (error) {
     Logger.error("Error fetching pending requests:", error);
@@ -3596,8 +3489,6 @@ app.post(
           ? "registrationRequests"
           : type === "transfer"
           ? "transferRequests"
-          : type === "document"
-          ? "verificationRequests"
           : null;
 
       if (!collection) {
@@ -3659,39 +3550,71 @@ app.post(
           };
         }
 
+        // Update the request document
         await db
           .collection(collection)
           .updateOne({ _id: document._id }, { $set: updateData }, { session });
 
-        // Update blockchain transactions collection for properties
-        if (
-          (type === "registration" || type === "transfer") &&
-          document.propertyInfo?.propertyId
-        ) {
-          await db.collection("blockchainTxns").updateOne(
-            { propertyId: document.propertyInfo.propertyId },
-            {
-              $set: {
-                isVerified: true,
-                verifiedAt: new Date(),
-                verifiedBy: req.user.email,
-                propertyId: document.propertyInfo.propertyId,
-                currentBlockchainId: currentBlockchainId,
-                lastModified: new Date(),
-                type: type.toUpperCase(),
-              },
-              $push: {
-                transactions: {
-                  type: "VERIFICATION",
-                  transactionHash: blockchainTransaction.transactionHash,
-                  blockNumber: blockchainTransaction.blockNumber,
-                  timestamp: new Date(),
-                  verifier: req.user.email,
-                },
-              },
+        if (type === "transfer" || type === "registration") {
+          const baseUpdate = {
+            $set: {
+              isVerified: true,
+              verifiedAt: new Date(),
+              verifiedBy: req.user.email,
+              lastModified: new Date(),
+              type: type.toUpperCase(),
             },
-            { upsert: true, session }
-          );
+          };
+
+          // For transfers, add owner update to $set
+          if (type === "transfer") {
+            baseUpdate.$set.owner = document.newOwnerInfo.email;
+            baseUpdate.$set.lastTransferDate = new Date();
+          }
+
+          // Add new transactions
+          const newTransactions = [];
+
+          if (type === "transfer") {
+            // Add transfer transaction
+            newTransactions.push({
+              type: "TRANSFER",
+              from: document.currentOwnerInfo.ethAddress,
+              to: document.newOwnerInfo.ethAddress,
+              transactionHash: blockchainTransaction.transactionHash,
+              blockNumber: blockchainTransaction.blockNumber,
+              timestamp: new Date(),
+              locality: document.propertyInfo.locality,
+              blockchainId: currentBlockchainId,
+            });
+          }
+
+          // Add verification transaction
+          newTransactions.push({
+            type: "VERIFICATION",
+            transactionHash: blockchainTransaction.transactionHash,
+            blockNumber: blockchainTransaction.blockNumber,
+            timestamp: new Date(),
+            verifier: req.user.email,
+          });
+
+          // Add $push operation only if we have new transactions
+          if (newTransactions.length > 0) {
+            baseUpdate.$push = {
+              transactions: { $each: newTransactions },
+            };
+          }
+
+          Logger.info("Updating blockchainTxns with:", baseUpdate);
+
+          // Perform the update
+          await db
+            .collection("blockchainTxns")
+            .updateOne(
+              { propertyId: document.propertyInfo.propertyId },
+              baseUpdate,
+              { session }
+            );
         }
 
         // Create activity entry
@@ -3699,9 +3622,7 @@ app.post(
           activityType:
             type === "registration"
               ? "PROPERTY_REGISTRATION"
-              : type === "transfer"
-              ? "PROPERTY_TRANSFER"
-              : "DOCUMENT_VERIFICATION",
+              : "PROPERTY_TRANSFER",
           status: "VERIFIED",
           timestamp: new Date(),
           user: {
@@ -3709,18 +3630,18 @@ app.post(
             role: "government_official",
           },
           property: {
-            id: document.propertyInfo?.propertyId,
-            name: document.propertyInfo?.propertyName || "Unnamed Property",
-            type: document.propertyInfo?.propertyType || "Not Specified",
+            id: document.propertyInfo.propertyId,
+            name: document.propertyInfo.propertyName || "Unnamed Property",
+            type: document.propertyInfo.propertyType || "Not Specified",
             location:
-              document.propertyInfo?.locality || "Location Not Specified",
+              document.propertyInfo.locality || "Location Not Specified",
           },
           transaction: {
             id: document._id.toString(),
             documentType: type,
             verificationDate: new Date(),
             blockchainId: currentBlockchainId,
-            transactionHash: blockchainTransaction?.transactionHash,
+            transactionHash: blockchainTransaction.transactionHash,
           },
           details: {
             description: `${
@@ -3747,14 +3668,21 @@ app.post(
             action: `${type.toUpperCase()}_VERIFIED`,
             documentId: document._id,
             documentType: type,
-            propertyId: document.propertyInfo?.propertyId,
-            blockchainId: document.blockchainInfo?.blockchainId,
-            transactionHash: blockchainTransaction?.transactionHash,
-            blockNumber: blockchainTransaction?.blockNumber,
+            propertyId: document.propertyInfo.propertyId,
+            blockchainId: currentBlockchainId,
+            transactionHash: blockchainTransaction.transactionHash,
+            blockNumber: blockchainTransaction.blockNumber,
             verifier: req.user.email,
             timestamp: new Date(),
             notes: verificationNotes,
             ipAddress: req.ip,
+            ownerUpdate:
+              type === "transfer"
+                ? {
+                    previousOwner: document.currentOwnerInfo.email,
+                    newOwner: document.newOwnerInfo.email,
+                  }
+                : undefined,
           },
           { session }
         );

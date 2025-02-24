@@ -7,6 +7,19 @@ async function checkAuthStatus() {
       window.location.href = "/login.html";
       return false;
     }
+
+    // Add government user check
+    if (data.user) {
+      const isGovUser =
+        data.user.type === "government" || data.user.email.endsWith("@gov.in");
+      const currentPath = window.location.pathname;
+
+      if (isGovUser && currentPath !== "/govdash.html") {
+        window.location.href = "/govdash.html";
+        return false;
+      }
+    }
+
     return true;
   } catch (error) {
     console.error("Auth check failed:", error);
