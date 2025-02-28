@@ -7,6 +7,7 @@ firebase.js
 # Dependencies
 node_modules/
 uploads/
+signatures/
 
 # Logs
 logs/
