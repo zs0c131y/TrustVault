@@ -32,6 +32,12 @@ const loginSpinner = document.getElementById("loginSpinner");
 const logoutButton = document.getElementById("logout");
 const signatureUpdateButton = document.getElementById("updateSignature");
 
+if (signatureUpdateButton) {
+  signatureUpdateButton.addEventListener("click", () => {
+    showModal("signatureModal");
+  });
+}
+
 // Fetch dashboard metrics
 async function fetchMetrics() {
   try {
@@ -122,39 +128,165 @@ async function fetchVerificationDocuments() {
   }
 }
 
-// Signature update function
-window.updateSignature = async function (event) {
+// File preview handling
+document
+  .getElementById("docFile")
+  ?.addEventListener("change", function (event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const previewContainer = document.getElementById(
+      "signaturePreviewContainer"
+    );
+    const preview = document.getElementById("signaturePreview");
+
+    if (!previewContainer || !preview) return;
+
+    // Display the container
+    previewContainer.style.display = "block";
+
+    // Show file info
+    preview.innerHTML = `
+    <div class="file-details">
+      <div><i class="fas fa-file-alt fa-2x text-primary mb-2"></i></div>
+      <div><strong>${file.name}</strong></div>
+      <div>Size: ${(file.size / 1024).toFixed(2)} KB</div>
+      <div>Type: ${file.type || "Unknown"}</div>
+    </div>
+  `;
+  });
+
+// Create signature function
+window.createSignature = async function (event) {
   event.preventDefault();
 
-  const certFile = document.getElementById("certFile").files[0];
-  const currentPass = document.getElementById("currentPass").value;
+  const docFile = document.getElementById("docFile").files[0];
 
-  if (!certFile || !currentPass) {
-    showToast("Please fill in all fields", "error");
+  if (!docFile) {
+    showToast("Please select a document to sign", "error");
     return;
   }
 
-  try {
-    const formData = new FormData();
-    formData.append("certificate", certFile);
-    formData.append("password", currentPass);
+  // Show loading state
+  const submitButton = event.target;
+  const originalButtonText = submitButton.innerHTML;
+  submitButton.disabled = true;
+  submitButton.innerHTML =
+    '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
-    const response = await fetch("/api/update-signature", {
+  try {
+    // Create FormData object
+    const formData = new FormData();
+    formData.append("document", docFile);
+
+    // Important: Don't set Content-Type header - browser will set it with correct boundary
+    const headers = getFormDataAuthHeaders();
+
+    const response = await fetch("/api/create-signature", {
       method: "POST",
-      headers: getAuthHeaders(),
+      headers: headers,
       body: formData,
     });
 
     if (!response.ok) {
-      throw new Error("Failed to update signature");
+      throw new Error(`Server error: ${response.status}`);
     }
 
-    showToast("Signature updated successfully");
-    closeModal("signatureModal");
-    document.getElementById("signatureForm").reset();
+    // Get the signed document as a blob
+    const signedDocBlob = await response.blob();
+
+    // Create a download link for the signed document
+    const downloadUrl = URL.createObjectURL(signedDocBlob);
+
+    // Update the preview with download link
+    const preview = document.getElementById("signaturePreview");
+    if (preview) {
+      preview.innerHTML = `
+        <div class="signed-document">
+          <div><i class="fas fa-file-signature fa-3x text-green mb-3"></i></div>
+          <div><strong>Document signed successfully!</strong></div>
+          <div class="mt-2">
+            <a href="${downloadUrl}" download="${docFile.name.replace(
+        /\.[^/.]+$/,
+        ""
+      )}_signed.pdf" class="signature-download-btn">
+              <i class="fas fa-download"></i> Download Signed Document
+            </a>
+          </div>
+        </div>
+      `;
+    }
+
+    showToast("Document signed successfully");
+
+    // Add an activity for this action
+    addActivity({
+      type: "signature",
+      docId: docFile.name,
+      timestamp: new Date().toLocaleString(),
+      hash: "sig_" + Math.random().toString(36).substring(2, 10),
+    });
   } catch (error) {
-    console.error("Error updating signature:", error);
-    showToast("Failed to update signature: " + error.message, "error");
+    console.error("Error creating signature:", error);
+    showToast("Failed to create signature: " + error.message, "error");
+
+    // Reset the preview
+    const previewContainer = document.getElementById(
+      "signaturePreviewContainer"
+    );
+    if (previewContainer) {
+      previewContainer.style.display = "none";
+    }
+  } finally {
+    // Restore button state
+    submitButton.disabled = false;
+    submitButton.innerHTML = originalButtonText;
+  }
+};
+
+// Helper function to get auth headers for FormData requests
+function getFormDataAuthHeaders() {
+  const token =
+    localStorage.getItem("trustvault_prod_token") ||
+    localStorage.getItem("trustvault_dev_token");
+
+  // For FormData, we don't set Content-Type as browser needs to set boundaries
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "X-Device-ID": getDeviceId(),
+  };
+
+  return headers;
+}
+
+// Function to clean up blob URLs when modal is closed
+const originalCloseModal = window.closeModal;
+window.closeModal = function (modalId) {
+  // Call the original closeModal function
+  originalCloseModal(modalId);
+
+  // Additional cleanup for signature modal
+  if (modalId === "signatureModal") {
+    // Find and revoke any blob URLs in the modal
+    const preview = document.getElementById("signaturePreview");
+    if (preview) {
+      const links = preview.querySelectorAll("a[href^='blob:']");
+      links.forEach((link) => {
+        URL.revokeObjectURL(link.href);
+      });
+    }
+
+    // Reset the form
+    const form = document.getElementById("signatureForm");
+    if (form) form.reset();
+
+    // Hide the preview container
+    const previewContainer = document.getElementById(
+      "signaturePreviewContainer"
+    );
+    if (previewContainer) {
+      previewContainer.style.display = "none";
+    }
   }
 };
 

@@ -287,32 +287,47 @@ export const handleAuthRedirect = (currentPath) => {
 export const isAuthenticated = async () => {
   try {
     const token = getToken();
-    if (!token) {
-      console.log("No token found during auth check");
-      return false;
+    if (!token) return false;
+
+    // Add retry logic for server restarts
+    const maxRetries = 3;
+    let retryCount = 0;
+
+    while (retryCount < maxRetries) {
+      try {
+        const response = await fetch("/checkAuth", {
+          headers: getAuthHeaders(),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          return data.authenticated;
+        }
+
+        // If server error (500), retry
+        if (response.status >= 500) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1000 * (retryCount + 1))
+          );
+          retryCount++;
+          continue;
+        }
+
+        // If unauthorized, clear token
+        if (response.status === 401) {
+          await removeToken();
+          return false;
+        }
+
+        break;
+      } catch (error) {
+        retryCount++;
+        if (retryCount === maxRetries) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
+      }
     }
 
-    const response = await fetch("/checkAuth", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "X-Device-ID": getDeviceId(),
-      },
-    });
-
-    if (!response.ok) {
-      console.log("Auth check failed with status:", response.status);
-      await removeToken();
-      return false;
-    }
-
-    const data = await response.json();
-    if (!data.authenticated) {
-      console.log("Server returned not authenticated");
-      await removeToken();
-      return false;
-    }
-
-    return true;
+    return false;
   } catch (error) {
     console.error("Auth check failed:", error);
     return false;

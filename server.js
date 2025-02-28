@@ -20,6 +20,9 @@ const IPFSVerificationService = require("./services/IPFSVerificationService");
 const ipfsService = new IPFSVerificationService();
 const { create } = require("ipfs-http-client");
 const { Buffer } = require("buffer");
+const mime = require("mime-types");
+const crypto = require("crypto");
+const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
 
 // Module-level variables
 let db = null;
@@ -250,6 +253,12 @@ const checkGovAccess = async (req, res, next) => {
 const uploadDir = "./uploads";
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
+}
+
+// Signature configuration
+const signatureDir = "./signatures";
+if (!fs.existsSync(signatureDir)) {
+  fs.mkdirSync(signatureDir);
 }
 
 const storage = multer.diskStorage({
@@ -2484,6 +2493,132 @@ app.get("/api/list/document", enhancedVerifyToken, async (req, res) => {
   }
 });
 
+// New route for listing documents with advanced filtering
+app.get("/api/list-doc", enhancedVerifyToken, async (req, res) => {
+  try {
+    const { search, type, status } = req.query;
+    const userEmail = req.user.email;
+
+    // Build query
+    const query = {
+      owner: userEmail,
+      type: "DOCUMENT_VERIFICATION",
+    };
+
+    // Add search filtering
+    if (search) {
+      query.$or = [
+        { documentType: new RegExp(search, "i") },
+        { "personalInfo.name": new RegExp(search, "i") },
+        { requestId: new RegExp(search, "i") },
+      ];
+    }
+
+    // Add type filtering
+    if (type) {
+      query.documentType = new RegExp(type, "i");
+    }
+
+    // Add status filtering
+    if (status) {
+      query.isVerified = status === "verified";
+    }
+
+    // Fetch documents
+    const documents = await db
+      .collection("blockchainTxns")
+      .find(query)
+      .sort({ submissionDate: -1 })
+      .toArray();
+
+    // Enrich documents with additional details
+    const enrichedDocuments = await Promise.all(
+      documents.map(async (doc) => {
+        const verificationRequest = await db
+          .collection("verificationRequests")
+          .findOne({ requestId: doc.requestId });
+
+        return {
+          id: doc._id,
+          requestId: doc.requestId,
+          documentType: doc.documentType || "Document",
+          isVerified: doc.isVerified || false,
+          submissionDate:
+            doc.submissionDate || verificationRequest?.submissionDate,
+          blockchainId: doc.currentBlockchainId,
+          personalInfo: verificationRequest?.personalInfo,
+          documents: verificationRequest?.documents,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      documents: enrichedDocuments,
+    });
+  } catch (error) {
+    Logger.error("Error fetching documents:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch documents",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+app.get(
+  "/api/document/:requestId/preview",
+  enhancedVerifyToken,
+  async (req, res) => {
+    try {
+      const userEmail = req.user.email;
+
+      const verificationRequest = await db
+        .collection("verificationRequests")
+        .findOne({
+          requestId: req.params.requestId,
+          userId: userEmail, // Ensure the user owns the document
+        });
+
+      if (
+        !verificationRequest ||
+        !verificationRequest.documents?.document1?.path
+      ) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      const filePath = verificationRequest.documents.document1.path;
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      // Log file details for debugging
+      console.log("Preview file path:", filePath);
+      console.log("File exists:", fs.existsSync(filePath));
+
+      // Detect file type safely
+      const fileType = mime.lookup(filePath) || "application/octet-stream";
+      console.log("File MIME type:", fileType);
+
+      // Set appropriate headers
+      res.setHeader("Content-Type", fileType);
+
+      // Stream the file
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+    } catch (error) {
+      console.error("Error in document preview:", error);
+      res.status(500).json({
+        error: "Failed to preview document",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    }
+  }
+);
+
 // Single document details route
 app.get("/api/document/:requestId", enhancedVerifyToken, async (req, res) => {
   try {
@@ -3802,6 +3937,480 @@ app.get("/api/recent-activities", enhancedVerifyToken, async (req, res) => {
     });
   }
 });
+
+// Endpoint for creating digital signatures
+app.post(
+  "/api/create-signature",
+  enhancedVerifyToken,
+  upload.single("document"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: "No document provided",
+        });
+      }
+
+      Logger.info(
+        `Creating digital signature for document: ${req.file.originalname}`
+      );
+
+      // Get file details
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const fileType = req.file.mimetype;
+
+      // Generate a unique signature ID
+      const signatureId = `SIG-${crypto
+        .randomBytes(4)
+        .toString("hex")
+        .toUpperCase()}`;
+
+      // Calculate document hash
+      const documentHash = crypto
+        .createHash("sha256")
+        .update(fileBuffer)
+        .digest("hex");
+
+      // Create the signature timestamp
+      const now = new Date();
+      const dateStr = now.toLocaleDateString();
+      const timeStr = now.toLocaleTimeString();
+
+      // Create signed document
+      let signedDocBuffer;
+
+      try {
+        const pdfDoc = await PDFDocument.load(fileBuffer);
+        const pages = pdfDoc.getPages();
+        const lastPage = pages[pages.length - 1];
+
+        // Get the standard font
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+        // Get page dimensions
+        const { width, height } = lastPage.getSize();
+
+        // Format the signature message with actual values
+        const signatureMessage = `This document has been digitally signed by ${
+          req.user.email
+        } on ${dateStr} at ${timeStr} and does not require physical signature. The signature can be verified on the TrustVault platform using the hash: ${documentHash.substring(
+          0,
+          8
+        )}...${documentHash.substring(documentHash.length - 8)}`;
+
+        // Footer position and size
+        const fontSize = 8;
+        const footerHeight = 30; // Height of the footer area
+        const footerY = 20; // Position from bottom
+        const margin = 30; // Left and right margins
+
+        // Draw a full-width divider line at the top of the footer
+        lastPage.drawLine({
+          start: { x: margin, y: footerY + footerHeight },
+          end: { x: width - margin, y: footerY + footerHeight },
+          thickness: 0.5,
+        });
+
+        // Add signature text - centered with appropriate width
+        lastPage.drawText(signatureMessage, {
+          x: margin,
+          y: footerY + 15, // Position text in the middle of the footer
+          size: fontSize,
+          font: font,
+          maxWidth: width - margin * 2,
+          lineHeight: fontSize * 1.2,
+        });
+
+        // Add a small signature ID (right-aligned)
+        const idText = `ID: ${signatureId}`;
+        const idTextWidth = font.widthOfTextAtSize(idText, fontSize);
+
+        lastPage.drawText(idText, {
+          x: width - margin - idTextWidth, // Right-aligned
+          y: footerY + 5, // At the bottom of the footer
+          size: fontSize - 2,
+          font: font,
+        });
+
+        // Save the PDF
+        signedDocBuffer = await pdfDoc.save();
+      } catch (pdfError) {
+        Logger.error("PDF signing failed:", pdfError);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to create signature",
+          details:
+            process.env.NODE_ENV === "development"
+              ? pdfError.message
+              : undefined,
+        });
+      }
+
+      // Create a record of the signature in the database
+      const signatureRecord = {
+        signatureId,
+        documentName: req.file.originalname,
+        mimeType: "application/pdf",
+        createdBy: req.user.email,
+        createdAt: new Date(),
+        ipAddress: req.ip,
+        documentHash: documentHash,
+        verified: true,
+      };
+
+      // Save signature record to database
+      await db.collection("signatures").insertOne(signatureRecord);
+
+      // Create audit log entry
+      await db.collection("auditLog").insertOne({
+        action: "DOCUMENT_SIGNED",
+        userId: req.user.email,
+        documentName: req.file.originalname,
+        signatureId,
+        timestamp: new Date(),
+        ipAddress: req.ip,
+      });
+
+      Logger.success(`Document successfully signed with ID: ${signatureId}`);
+
+      // Set headers for file download
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${
+          path.parse(req.file.originalname).name
+        }_signed.pdf"`
+      );
+
+      // Send the signed document back to the client
+      res.send(Buffer.from(signedDocBuffer));
+
+      // Clean up the original uploaded file
+      fs.unlink(req.file.path, (err) => {
+        if (err) Logger.error(`Error deleting temporary file: ${err}`);
+      });
+    } catch (error) {
+      Logger.error("Signature creation error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to create signature",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    }
+  }
+);
+
+// Fixed version of signPdfDocument function with rgb helper
+async function signPdfDocument(pdfBuffer, user, signatureId) {
+  try {
+    // Load the PDF
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const pages = pdfDoc.getPages();
+    const lastPage = pages[pages.length - 1];
+
+    // Get page dimensions
+    const { width, height } = lastPage.getSize();
+
+    // Define colors using the rgb helper
+    const black = rgb(0, 0, 0);
+    const darkBlue = rgb(0, 0, 0.8);
+    const gray = rgb(0.4, 0.4, 0.4);
+
+    // Add signature box at the bottom of the last page
+    const signatureBoxHeight = 100;
+    const signatureBoxY = 30;
+
+    // Add signature border with rgb color
+    lastPage.drawRectangle({
+      x: 50,
+      y: signatureBoxY,
+      width: width - 100,
+      height: signatureBoxHeight,
+      borderColor: black,
+      borderWidth: 1,
+      opacity: 0.8,
+    });
+
+    // Add signature title
+    lastPage.drawText("DIGITAL SIGNATURE", {
+      x: 60,
+      y: signatureBoxY + signatureBoxHeight - 20,
+      size: 14,
+      color: darkBlue,
+    });
+
+    // Add signature details
+    lastPage.drawText(`Digitally signed by: ${user.name || user.email}`, {
+      x: 60,
+      y: signatureBoxY + signatureBoxHeight - 40,
+      size: 10,
+    });
+
+    lastPage.drawText(`Date: ${new Date().toLocaleString()}`, {
+      x: 60,
+      y: signatureBoxY + signatureBoxHeight - 55,
+      size: 10,
+    });
+
+    lastPage.drawText(`Signature ID: ${signatureId}`, {
+      x: 60,
+      y: signatureBoxY + signatureBoxHeight - 70,
+      size: 10,
+    });
+
+    lastPage.drawText(
+      "This document has been digitally signed and the signature can be verified through the TrustVault platform.",
+      {
+        x: 60,
+        y: signatureBoxY + signatureBoxHeight - 85,
+        size: 8,
+        color: gray,
+      }
+    );
+
+    // Create a hash of the original document content
+    const documentHash = crypto
+      .createHash("sha256")
+      .update(pdfBuffer)
+      .digest("hex");
+
+    lastPage.drawText(
+      `Document Hash: ${documentHash.substring(
+        0,
+        16
+      )}...${documentHash.substring(documentHash.length - 16)}`,
+      {
+        x: 60,
+        y: signatureBoxY + 10,
+        size: 8,
+        color: gray,
+      }
+    );
+
+    // Save the modified PDF
+    const signedPdfBytes = await pdfDoc.save();
+
+    return Buffer.from(signedPdfBytes);
+  } catch (error) {
+    Logger.error("Error signing PDF:", error);
+    throw error;
+  }
+}
+
+// Fixed version of signImageDocument function
+async function signImageDocument(imageBuffer, user, signatureId) {
+  try {
+    const pdfDoc = await PDFDocument.create();
+
+    // Define colors using the rgb helper
+    const black = rgb(0, 0, 0);
+    const darkBlue = rgb(0, 0, 0.8);
+
+    // Embed the image
+    let image;
+    try {
+      // Try as PNG first
+      image = await pdfDoc.embedPng(imageBuffer);
+    } catch {
+      // Try as JPEG if PNG fails
+      image = await pdfDoc.embedJpeg(imageBuffer);
+    }
+
+    // Add a page with the image dimensions (with padding for signature)
+    const page = pdfDoc.addPage([
+      image.width + 50,
+      image.height + 150, // Extra space for signature at bottom
+    ]);
+
+    // Draw the image
+    page.drawImage(image, {
+      x: 25,
+      y: 100,
+      width: image.width,
+      height: image.height,
+    });
+
+    // Add signature box at the bottom with rgb color
+    page.drawRectangle({
+      x: 50,
+      y: 30,
+      width: image.width - 50,
+      height: 60,
+      borderColor: black,
+      borderWidth: 1,
+      opacity: 0.8,
+    });
+
+    // Add signature text
+    page.drawText("DIGITAL SIGNATURE", {
+      x: 60,
+      y: 75,
+      size: 12,
+      color: darkBlue,
+    });
+
+    page.drawText(`Digitally signed by: ${user.name || user.email}`, {
+      x: 60,
+      y: 60,
+      size: 10,
+    });
+
+    page.drawText(`Date: ${new Date().toLocaleString()}`, {
+      x: 60,
+      y: 45,
+      size: 10,
+    });
+
+    page.drawText(`Signature ID: ${signatureId}`, {
+      x: 60,
+      y: 30,
+      size: 10,
+    });
+
+    // Save the PDF
+    const signedPdfBytes = await pdfDoc.save();
+
+    return Buffer.from(signedPdfBytes);
+  } catch (error) {
+    Logger.error("Error converting and signing image:", error);
+    throw error;
+  }
+}
+
+// Fixed version of signGenericDocument function
+async function signGenericDocument(docBuffer, user, signatureId) {
+  try {
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([600, 800]);
+
+    // Define colors using the rgb helper
+    const black = rgb(0, 0, 0);
+    const darkBlue = rgb(0, 0, 0.8);
+    const mediumBlue = rgb(0, 0, 0.6);
+    const gray = rgb(0.4, 0.4, 0.4);
+
+    // Add header
+    page.drawText("Signed Document Certificate", {
+      x: 50,
+      y: 750,
+      size: 24,
+      color: darkBlue,
+    });
+
+    page.drawText(
+      "This certificate confirms that the original document has been digitally signed.",
+      {
+        x: 50,
+        y: 720,
+        size: 12,
+      }
+    );
+
+    // Add document information
+    page.drawText("Document Information", {
+      x: 50,
+      y: 680,
+      size: 16,
+      color: mediumBlue,
+    });
+
+    page.drawText(
+      `Original document size: ${(docBuffer.length / 1024).toFixed(2)} KB`,
+      {
+        x: 50,
+        y: 660,
+        size: 10,
+      }
+    );
+
+    page.drawText(
+      `Document hash: ${crypto
+        .createHash("sha256")
+        .update(docBuffer)
+        .digest("hex")}`,
+      {
+        x: 50,
+        y: 640,
+        size: 8,
+      }
+    );
+
+    // Add signature box
+    page.drawRectangle({
+      x: 50,
+      y: 200,
+      width: 500,
+      height: 100,
+      borderColor: black,
+      borderWidth: 1,
+      opacity: 0.8,
+    });
+
+    // Add signature text
+    page.drawText("DIGITAL SIGNATURE", {
+      x: 60,
+      y: 280,
+      size: 14,
+      color: darkBlue,
+    });
+
+    page.drawText(`Digitally signed by: ${user.name || user.email}`, {
+      x: 60,
+      y: 260,
+      size: 10,
+    });
+
+    page.drawText(`Date: ${new Date().toLocaleString()}`, {
+      x: 60,
+      y: 240,
+      size: 10,
+    });
+
+    page.drawText(`Signature ID: ${signatureId}`, {
+      x: 60,
+      y: 220,
+      size: 10,
+    });
+
+    // Add verification instructions
+    page.drawText("Verification Instructions", {
+      x: 50,
+      y: 150,
+      size: 16,
+      color: mediumBlue,
+    });
+
+    page.drawText(
+      "To verify this signature, please visit the TrustVault platform and enter the Signature ID.",
+      {
+        x: 50,
+        y: 130,
+        size: 10,
+      }
+    );
+
+    // Add footer
+    page.drawText(
+      `This signature was created on ${new Date().toISOString()} and is legally binding.`,
+      {
+        x: 50,
+        y: 50,
+        size: 8,
+        color: gray,
+      }
+    );
+
+    // Save the PDF
+    const signedPdfBytes = await pdfDoc.save();
+
+    return Buffer.from(signedPdfBytes);
+  } catch (error) {
+    Logger.error("Error creating signature certificate:", error);
+    throw error;
+  }
+}
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

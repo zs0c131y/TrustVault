@@ -428,3 +428,34 @@ select:focus {
     transform: rotate(360deg);
   }
 }
+
+.signature-preview-container {
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px dashed var(--border-color);
+  border-radius: 5px;
+}
+
+.signature-preview {
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-info {
+  font-size: 0.8em;
+  color: var(--gray);
+  margin-top: 5px;
+}
+
+.signature-download-btn {
+  display: inline-block;
+  margin-top: 15px;
+  text-decoration: none;
+  padding: 8px 16px;
+  background-color: var(--green);
+  color: white;
+  border-radius: 4px;
+  font-weight: 500;
+}

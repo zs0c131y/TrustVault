@@ -6,7 +6,45 @@ const maxTotalSize = 50 * 1024 * 1024; // 50MB in bytes
 
 // Validate document
 const validateDocumentType = (documentType) => {
-  const validTypes = ["passport", "id-card", "driving-license", "utility-bill"];
+  const validTypes = [
+    "passport",
+    "id-card",
+    "driving-license",
+    "utility-bill",
+    "aadhaar",
+    "pan-card",
+    "voter-id",
+    "marriage-cert",
+    "birth-cert",
+    "sale-deed",
+    "purchase-paper",
+    "fixed-deposit",
+    "will",
+    "trust-deed",
+    "power-of-attorney",
+    "lease-agreement",
+    "rent-agreement",
+    "partnership-deed",
+    "company-registration",
+    "gst-certificate",
+    "shop-act",
+    "trade-license",
+    "food-license",
+    "fire-license",
+    "health-license",
+    "labour-license",
+    "contract-labour-license",
+    "factory-license",
+    "pollution-license",
+    "excise-license",
+    "customs-license",
+    "death-cert",
+    "divorce-cert",
+    "court-order",
+    "legal-notice",
+    "agreement",
+  ];
+
   if (!documentType || !validTypes.includes(documentType)) {
     throw new Error("Please select a valid document type");
   }
@@ -27,7 +65,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const allowedExtensions = [".pdf", ".png", ".jpg", ".jpeg"];
   const allowedMimeTypes = ["application/pdf", "image/png", "image/jpeg"];
 
-  // Initialize form with auth check
   // Initialize form with auth check
   const initializeForm = async () => {
     try {
@@ -296,7 +333,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const uploadedFile1 = document.getElementById("upload-document")?.files[0];
     const uploadedFile2 =
       document.getElementById("upload-document-2")?.files[0];
-    const validatedDocumentType = validateDocumentType(documentType);
+    validateDocumentType(documentType);
 
     // Validate required fields
     if (!firstName) throw new Error("First name is required");
@@ -338,7 +375,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       idNumber,
       permanentAddress: pAddress,
       currentAddress: cAddress,
-      documentType: validatedDocumentType, // Use validated document type
+      documentType: documentType, // Use original document type value
       files: [uploadedFile1, uploadedFile2].filter(Boolean),
     };
   };
@@ -459,12 +496,92 @@ document.addEventListener("DOMContentLoaded", () => {
   const documentTypeSelect = document.getElementById("document-type");
   const documentNumberInput = document.getElementById("document-number");
 
+  // Validity of document
+  const documentValidityPeriods = {
+    // Lifetime validity
+    "birth-cert": "Lifetime",
+    "death-cert": "Lifetime",
+    "marriage-cert": "Lifetime",
+    "divorce-cert": "Lifetime",
+
+    // 1 year validity
+    "rent-agreement": "1 Year",
+    "lease-agreement": "1 Year",
+
+    // 10 years validity (and other documents not specified)
+    passport: "10 Years",
+    "id-card": "10 Years",
+    "driving-license": "10 Years",
+    "utility-bill": "10 Years",
+    aadhaar: "10 Years",
+    "pan-card": "10 Years",
+    "voter-id": "10 Years",
+    "sale-deed": "10 Years",
+    "purchase-paper": "10 Years",
+    "fixed-deposit": "10 Years",
+    will: "10 Years",
+    "trust-deed": "10 Years",
+    "power-of-attorney": "10 Years",
+    "partnership-deed": "10 Years",
+    "company-registration": "10 Years",
+    "gst-certificate": "10 Years",
+    "shop-act": "10 Years",
+    "trade-license": "10 Years",
+    "food-license": "10 Years",
+    "fire-license": "10 Years",
+    "health-license": "10 Years",
+    "labour-license": "10 Years",
+    "contract-labour-license": "10 Years",
+    "factory-license": "10 Years",
+    "pollution-license": "10 Years",
+    "excise-license": "10 Years",
+    "customs-license": "10 Years",
+    "court-order": "10 Years",
+    "legal-notice": "10 Years",
+    agreement: "10 Years",
+  };
+
   // Map of document types to their corresponding ID names
   const documentIdLabels = {
+    // These should show "ID Number"
     passport: "Passport Number",
     "id-card": "ID Card Number",
     "driving-license": "License Number",
-    "utility-bill": "Bill Number",
+    aadhaar: "Aadhaar Number",
+    "pan-card": "PAN Number",
+    "voter-id": "Voter ID Number",
+
+    // All others should show "Reference Number / ID Number"
+    "utility-bill": "Reference Number / ID Number",
+    "marriage-cert": "Reference Number / ID Number",
+    "birth-cert": "Reference Number / ID Number",
+    "sale-deed": "Reference Number / ID Number",
+    "purchase-paper": "Reference Number / ID Number",
+    "fixed-deposit": "Reference Number / ID Number",
+    will: "Reference Number / ID Number",
+    "trust-deed": "Reference Number / ID Number",
+    "power-of-attorney": "Reference Number / ID Number",
+    "lease-agreement": "Reference Number / ID Number",
+    "rent-agreement": "Reference Number / ID Number",
+    "partnership-deed": "Reference Number / ID Number",
+    "company-registration": "Reference Number / ID Number",
+    "gst-certificate": "Reference Number / ID Number",
+    "shop-act": "Reference Number / ID Number",
+    "trade-license": "Reference Number / ID Number",
+    "food-license": "Reference Number / ID Number",
+    "fire-license": "Reference Number / ID Number",
+    "health-license": "Reference Number / ID Number",
+    "labour-license": "Reference Number / ID Number",
+    "contract-labour-license": "Reference Number / ID Number",
+    "factory-license": "Reference Number / ID Number",
+    "pollution-license": "Reference Number / ID Number",
+    "excise-license": "Reference Number / ID Number",
+    "customs-license": "Reference Number / ID Number",
+    "death-cert": "Reference Number / ID Number",
+    "divorce-cert": "Reference Number / ID Number",
+    "court-order": "Reference Number / ID Number",
+    "legal-notice": "Reference Number / ID Number",
+    agreement: "Reference Number / ID Number",
   };
 
   // Update placeholder when document type changes
@@ -472,20 +589,38 @@ document.addEventListener("DOMContentLoaded", () => {
     const selectedType = this.value;
     try {
       validateDocumentType(selectedType);
+
+      // Update ID label placeholder
       const newPlaceholder = documentIdLabels[selectedType] || "Document ID";
       documentNumberInput.placeholder = newPlaceholder;
+
+      // Display validity period if available
+      const validityPeriod =
+        documentValidityPeriods[selectedType] || "10 Years";
+      const validityInfoElement = document.getElementById("validity-info");
+
+      if (validityInfoElement) {
+        validityInfoElement.textContent = `Validity: ${validityPeriod}`;
+        validityInfoElement.classList.remove("hidden");
+      } else {
+        // Create validity info element if it doesn't exist
+        const validityDiv = document.createElement("div");
+        validityDiv.id = "validity-info";
+        validityDiv.className = "text-sm text-gray-600 mt-1";
+        validityDiv.textContent = `Validity: ${validityPeriod}`;
+        this.parentNode.appendChild(validityDiv);
+      }
+
       console.log("Valid document type selected:", selectedType);
     } catch (error) {
       console.error("Invalid document type:", error);
       this.value = ""; // Reset to default if invalid
     }
-    const newPlaceholder = documentIdLabels[selectedType] || "Document ID";
-    documentNumberInput.placeholder = newPlaceholder;
 
     // Clear the input when document type changes
     documentNumberInput.value = "";
 
-    // Specific validation for each document type
+    // Specific validation for each document type (keeping your existing validation)
     switch (selectedType) {
       case "passport":
         documentNumberInput.setAttribute("maxlength", "8");
@@ -502,6 +637,18 @@ document.addEventListener("DOMContentLoaded", () => {
       case "utility-bill":
         documentNumberInput.setAttribute("maxlength", "20");
         documentNumberInput.pattern = "^[A-Z0-9-]{1,20}$";
+        break;
+      case "aadhaar":
+        documentNumberInput.setAttribute("maxlength", "12");
+        documentNumberInput.pattern = "^[0-9]{12}$";
+        break;
+      case "pan-card":
+        documentNumberInput.setAttribute("maxlength", "10");
+        documentNumberInput.pattern = "^[A-Z]{5}[0-9]{4}[A-Z]$";
+        break;
+      case "voter-id":
+        documentNumberInput.setAttribute("maxlength", "10");
+        documentNumberInput.pattern = "^[A-Z]{3}[0-9]{7}$";
         break;
       default:
         documentNumberInput.removeAttribute("maxlength");

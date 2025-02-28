@@ -177,40 +177,48 @@
     <div id="signatureModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
-          <h2><i class="fas fa-signature"></i> Update Digital Signature</h2>
-          <button class="close-btn" onclick="closeModal('signatureModal')">
-            &times;
-          </button>
+          <h2><i class="fas fa-signature"></i> Create Digital Signature</h2>
+          <span class="close" onclick="closeModal('signatureModal')"
+            >&times;</span
+          >
         </div>
-        <form id="signatureForm" onsubmit="updateSignature(event)">
-          <div class="form-group">
-            <label>Certificate File</label>
-            <div class="file-input">
-              <input type="file" id="certFile" accept=".cert,.key" required />
+        <div class="modal-body">
+          <form id="signatureForm" enctype="multipart/form-data">
+            <div class="form-group">
+              <label for="docFile">Select Document to Sign:</label>
+              <input type="file" id="docFile" name="document" required />
+              <p class="file-info">
+                Supported formats: PDF, DOC, DOCX, JPG, PNG
+              </p>
             </div>
-          </div>
-          <div class="form-group">
-            <label>Current Password</label>
-            <input
-              type="password"
-              id="currentPass"
-              placeholder="Enter current password"
-              required
-            />
-          </div>
-          <div class="button-group">
-            <button type="submit" class="btn-primary">
-              <i class="fas fa-save"></i> Update Signature
-            </button>
-            <button
-              type="button"
-              class="btn-secondary"
-              onclick="closeModal('signatureModal')"
+
+            <div
+              class="signature-preview-container mt-4"
+              id="signaturePreviewContainer"
+              style="display: none"
             >
-              <i class="fas fa-times"></i> Cancel
-            </button>
-          </div>
-        </form>
+              <h3>Signature Preview</h3>
+              <div id="signaturePreview" class="signature-preview"></div>
+            </div>
+
+            <div class="form-buttons">
+              <button
+                type="button"
+                onclick="closeModal('signatureModal')"
+                class="btn-secondary"
+              >
+                <i class="fas fa-times"></i> Cancel
+              </button>
+              <button
+                type="button"
+                onclick="createSignature(event)"
+                class="btn-primary"
+              >
+                <i class="fas fa-signature"></i> Create Signature
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
 
