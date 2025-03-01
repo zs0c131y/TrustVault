@@ -8,26 +8,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const resultContainer = document.getElementById("resultContainer");
   const backButton = document.getElementById("backButton");
   const loadingSpinner = document.getElementById("loadingSpinner");
-  const switchTrack = document.querySelector(".switch-track");
-  const leftOption = switchTrack.querySelector(".left");
-  const rightOption = switchTrack.querySelector(".right");
-
-  // Switch functionality
-  function updateSwitch(type) {
-    switchTrack.setAttribute("data-active", type);
-    if (type === "blockchain") {
-      leftOption.classList.add("active");
-      rightOption.classList.remove("active");
-      searchInput.placeholder = "Enter Blockchain ID";
-    } else {
-      leftOption.classList.remove("active");
-      rightOption.classList.add("active");
-      searchInput.placeholder = "Enter IPFS Hash";
-    }
-  }
-
-  // Initialize switch
-  updateSwitch("blockchain");
+  const verifyInfo = document.querySelector(".verify-info"); // Get the instruction text container
 
   // Initialize with auth check
   const initializePage = async () => {
@@ -56,16 +37,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Validation functions
-  const isValidEthereumAddress = (address) => {
-    const ethereumRegex = /^0x[a-fA-F0-9]{40}$/;
-    return ethereumRegex.test(address);
-  };
-
-  const isValidIpfsHash = (hash) => {
-    const ipfsRegex =
-      /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{57})$/;
-    return ipfsRegex.test(hash);
+  // Validation function for signature ID
+  const isValidSignatureId = (id) => {
+    // Format is SIG-XXXXXXXX (where X is a hex digit)
+    const signatureRegex = /^SIG-[A-F0-9]{8}$/;
+    return signatureRegex.test(id);
   };
 
   const toggleLoading = (show) => {
@@ -77,104 +53,64 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   };
 
-  const createVerifiedProperty = (data) => {
+  const createVerifiedSignature = (data) => {
+    const verificationDate = new Date(data.createdAt).toLocaleString();
+    const fullHash = data.documentHash || "Not available";
+
     return `
-      <div class="property-details">
-        <div class="status-badge ${
-          data.isVerified ? "status-verified" : "status-pending"
-        }">
-          ${data.isVerified ? "Verified ✅" : "Not Verified ⌛"}
-        </div>
-      </div>
       <div class="property-card">
-        <div class="property-title">Document Status</div>
-        <div class="blockchain-id">Blockchain ID: ${
-          data.currentBlockchainId
-        }</div>
-        <div class="details">
-          <div class="detail-row">
-            <span class="label">Document Type:</span>
-            <span class="value">${data.documentType || "Not Available"}</span>
+        <div class="property-header">
+          <h2>Signature Status</h2>
+          <div class="status ${data.verified ? "verified" : "pending"}">
+            ${data.verified ? "Verified ✅" : "Not Verified ⌛"}
           </div>
+        </div>
+        <div class="property-id">Signature ID: ${data.signatureId}</div>
+        <div class="property-details">
           <div class="detail-row">
-            <span class="label">Status:</span>
-            <span class="value">${
-              data.isVerified ? "Verified" : "Pending"
+            <span class="detail-label">Document Name:</span>
+            <span class="detail-value">${
+              data.documentName || "Not Available"
             }</span>
           </div>
           <div class="detail-row">
-            <span class="label">Owner:</span>
-            <span class="value">${data.owner || "Not Available"}</span>
+            <span class="detail-label">Status:</span>
+            <span class="detail-value">${
+              data.verified ? "Verified" : "Pending"
+            }</span>
           </div>
-          ${
-            data.verifiedAt
-              ? `
-            <div class="detail-row">
-              <span class="label">Verification Date:</span>
-              <span class="value">${new Date(
-                data.verifiedAt
-              ).toLocaleString()}</span>
-            </div>
-          `
-              : ""
-          }
-          ${
-            data.verifiedBy
-              ? `
-            <div class="detail-row">
-              <span class="label">Verified By:</span>
-              <span class="value">${data.verifiedBy}</span>
-            </div>
-          `
-              : ""
-          }
-          ${
-            data.ipfsHash
-              ? `
-            <div class="detail-row">
-              <span class="label">IPFS Hash:</span>
-              <span class="value">${data.ipfsHash}</span>
-            </div>
-          `
-              : ""
-          }
-          ${
-            data.transactions && data.transactions.length > 0
-              ? `
-            <div class="detail-row">
-              <span class="label">Transaction Date:</span>
-              <span class="value">${new Date(
-                data.transactions[data.transactions.length - 1].timestamp
-              ).toLocaleString()}</span>
-            </div>
-          `
-              : ""
-          }
+          <div class="detail-row">
+            <span class="detail-label">Created By:</span>
+            <span class="detail-value">${
+              data.createdBy || "Not Available"
+            }</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Creation Date:</span>
+            <span class="detail-value">${verificationDate}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Document Hash:</span>
+            <span class="detail-value">${fullHash}</span>
+          </div>
         </div>
       </div>
     `;
   };
 
-  const validateInput = (value, type) => {
-    if (type === "blockchainId") {
-      if (!isValidEthereumAddress(value)) {
-        throw new Error("Please enter a valid blockchain ID");
-      }
-    } else if (type === "ipfsHash") {
-      if (!isValidIpfsHash(value)) {
-        throw new Error("Please enter a valid IPFS hash");
-      }
+  const validateInput = (value) => {
+    if (!isValidSignatureId(value)) {
+      throw new Error(
+        "Please enter a valid signature ID (format: SIG-XXXXXXXX)"
+      );
     }
   };
 
   const handleVerification = async () => {
     const value = searchInput.value.trim();
-    const currentType = switchTrack.getAttribute("data-active");
-    const searchType =
-      currentType === "blockchain" ? "blockchainId" : "ipfsHash";
 
     try {
-      validateInput(value, searchType);
+      validateInput(value);
 
       if (!(await isAuthenticated())) {
         window.location.href = "./login.html";
@@ -184,10 +120,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       errorMessage.style.display = "none";
       toggleLoading(true);
 
-      const endpoint =
-        searchType === "blockchainId"
-          ? `/api/document/search-by-blockchain-id/${value}`
-          : `/api/document/search-by-ipfs-hash/${value}`;
+      // Hide the instruction text during verification
+      if (verifyInfo) {
+        verifyInfo.style.display = "none";
+      }
+
+      // Use the signature verification endpoint
+      const endpoint = `/api/signature/verify/${value}`;
 
       const response = await fetch(endpoint, {
         method: "GET",
@@ -197,8 +136,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!response.ok) {
         throw new Error(
           response.status === 404
-            ? "Document not found in verification records"
-            : "Failed to verify document"
+            ? "Signature not found in verification records"
+            : "Failed to verify signature"
         );
       }
 
@@ -206,22 +145,25 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.log("Verification response:", data);
 
       if (data.success && data.data) {
-        resultContainer.innerHTML = createVerifiedProperty(data.data);
+        resultContainer.innerHTML = createVerifiedSignature(data.data);
+        // Keep the instruction text hidden after successful verification
+        if (verifyInfo) {
+          verifyInfo.style.display = "none";
+        }
       } else {
         resultContainer.innerHTML = `
-          <div class="property-details">
-            <div class="status-badge status-error">
-              Document Not Found ❌
-            </div>
-          </div>
           <div class="property-card">
-            <div class="blockchain-id">${
-              searchType === "blockchainId" ? "Blockchain ID" : "IPFS Hash"
-            }: ${value}</div>
-            <div class="error-details">
-              No verification record found for this ${
-                searchType === "blockchainId" ? "blockchain ID" : "IPFS hash"
-              }
+            <div class="property-header">
+              <h2>Signature Status</h2>
+              <div class="status error">
+                Not Found ❌
+              </div>
+            </div>
+            <div class="property-id">Signature ID: ${value}</div>
+            <div class="property-details">
+              <div class="error-details">
+                No verification record found for this signature ID
+              </div>
             </div>
           </div>
         `;
@@ -229,11 +171,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (error) {
       console.error("Verification error:", error);
       errorMessage.textContent =
-        error.message || "Failed to verify document. Please try again.";
+        error.message || "Failed to verify signature. Please try again.";
       errorMessage.style.display = "block";
       resultContainer.innerHTML = "";
+
+      // Show the instruction text again if there's an error
+      if (verifyInfo) {
+        verifyInfo.style.display = "block";
+      }
     } finally {
       toggleLoading(false);
+    }
+  };
+
+  // Reset the form and show instructions
+  const resetForm = () => {
+    searchInput.value = "";
+    resultContainer.innerHTML = "";
+    verifyButton.disabled = true;
+    errorMessage.style.display = "none";
+    if (verifyInfo) {
+      verifyInfo.style.display = "block";
     }
   };
 
@@ -242,18 +200,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     const value = e.target.value;
     errorMessage.style.display = "none";
     verifyButton.disabled = !value;
-  });
 
-  switchTrack?.addEventListener("click", () => {
-    const currentType = switchTrack.getAttribute("data-active");
-    const newType = currentType === "blockchain" ? "ipfs" : "blockchain";
-    updateSwitch(newType);
+    // If the user clears the input, reset the form
+    if (!value) {
+      resetForm();
+    }
 
-    // Clear input and error when switching
-    searchInput.value = "";
-    errorMessage.style.display = "none";
-    resultContainer.innerHTML = "";
-    verifyButton.disabled = true;
+    // Optional: Give visual feedback on valid format
+    if (value && !isValidSignatureId(value)) {
+      errorMessage.textContent =
+        "Please enter a valid signature ID (format: SIG-XXXXXXXX)";
+      errorMessage.style.display = "block";
+    }
   });
 
   verifyButton?.addEventListener("click", handleVerification);
@@ -274,6 +232,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     errorMessage.textContent = customMessage;
     errorMessage.style.display = "block";
     toggleLoading(false);
+
+    // Show the instruction text again if there's an error
+    if (verifyInfo) {
+      verifyInfo.style.display = "block";
+    }
   };
 
   window.addEventListener("unhandledrejection", (event) => {

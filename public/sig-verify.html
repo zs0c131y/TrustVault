@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Blockchain Registration</title>
+    <title>Verify Digital Signature</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -11,13 +11,128 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./blockchain.css" />
+    <style>
+      /* Fix for the dark text on dark background */
+      .detail-row .detail-label,
+      .detail-row .detail-value,
+      .property-header h2,
+      .property-id {
+        color: #e1e5ee !important; /* Light color for better contrast on dark backgrounds */
+      }
+
+      /* Improve property card styling */
+      .property-card {
+        background: rgba(24, 28, 36, 0.8); /* Slightly more opaque background */
+        border-radius: 16px;
+        padding: 24px;
+        margin-top: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      /* Style property header */
+      .property-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+
+      .property-header h2 {
+        margin: 0;
+        font-size: 24px;
+      }
+
+      /* Style status indicators */
+      .status {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-weight: 500;
+        font-size: 14px;
+      }
+
+      .status.verified {
+        background-color: rgba(76, 175, 80, 0.2);
+        color: #4caf50;
+        border: 1px solid rgba(76, 175, 80, 0.3);
+      }
+
+      .status.pending {
+        background-color: rgba(255, 193, 7, 0.2);
+        color: #ffc107;
+        border: 1px solid rgba(255, 193, 7, 0.3);
+      }
+
+      .status.error {
+        background-color: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+        border: 1px solid rgba(244, 67, 54, 0.3);
+      }
+
+      /* Style property ID */
+      .property-id {
+        font-family: monospace;
+        font-size: 16px;
+        background: rgba(255, 255, 255, 0.1);
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+
+      /* Style detail rows */
+      .detail-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 12px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .detail-row:last-child {
+        border-bottom: none;
+      }
+
+      .detail-label {
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.7) !important;
+      }
+
+      .detail-value {
+        color: white !important;
+        max-width: 60%;
+        text-align: right;
+        word-break: break-all;
+      }
+
+      /* Error details styling */
+      .error-details {
+        color: #f44336;
+        padding: 15px;
+        background: rgba(244, 67, 54, 0.1);
+        border-radius: 8px;
+        text-align: center;
+        margin-top: 15px;
+      }
+
+      /* Instruction text styling */
+      .verify-info {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 15px;
+        border-radius: 8px;
+        margin-top: 20px;
+      }
+
+      .verify-info p {
+        color: rgba(255, 255, 255, 0.7);
+        text-align: center;
+        margin: 0;
+      }
+    </style>
   </head>
   <body>
     <header class="header">
       <div class="back-button" id="backButton">
         <span>&lt;</span>
       </div>
-      <h1>Verify Document Verification Status</h1>
+      <h1>Verify Digital Signature</h1>
       <div class="user-icon">
         <a href="./profile.html">
           <img src="./assets/user.png" alt="User Icon" />
@@ -30,11 +145,11 @@
         <input
           type="text"
           class="search-box"
-          placeholder="Enter Signature ID"
+          placeholder="Enter Signature ID (SIG-XXXXXXXX)"
           id="searchInput"
         />
         <button class="verify-button" id="verifyButton" disabled>
-          Verify Property
+          Verify Signature
         </button>
       </div>
 
@@ -45,6 +160,13 @@
       <div id="resultContainer"></div>
       <div id="loadingSpinner" class="loading-spinner" style="display: none">
         <div class="spinner"></div>
+      </div>
+
+      <div class="verify-info">
+        <p>
+          Enter the Signature ID (format: SIG-XXXXXXXX). Each signature has a
+          unique ID that can be found on the signed document.
+        </p>
       </div>
     </div>
 

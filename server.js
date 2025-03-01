@@ -23,6 +23,7 @@ const { Buffer } = require("buffer");
 const mime = require("mime-types");
 const crypto = require("crypto");
 const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
+const { metadata } = require("@truffle/contract/lib/contract/properties");
 
 // Module-level variables
 let db = null;
@@ -2460,7 +2461,7 @@ app.get("/api/list/document", enhancedVerifyToken, async (req, res) => {
       .collection("blockchainTxns")
       .find({
         owner: userEmail,
-        isVerified: true,
+        isVerified: false,
         type: "DOCUMENT_VERIFICATION",
       })
       .toArray();
@@ -2502,6 +2503,7 @@ app.get("/api/list-doc", enhancedVerifyToken, async (req, res) => {
     // Build query
     const query = {
       owner: userEmail,
+      isVerified: true,
       type: "DOCUMENT_VERIFICATION",
     };
 
@@ -4071,6 +4073,34 @@ app.post(
         ipAddress: req.ip,
       });
 
+      // Save in recentActivity
+      await db.collection("recentActivity").insertOne({
+        activityType: "DOCUMENT_SIGNING",
+        status: "completed",
+        timestamp: new Date(),
+        ipAddress: req.ip,
+        user: {
+          email: req.user.email,
+          role: "user",
+        },
+        document: {
+          id: signatureId,
+          type: "document",
+          name: req.file.originalname,
+          hash: documentHash,
+        },
+        details: {
+          description: "Document signed digitally",
+          notes: "Document signed and ready for download",
+        },
+        metadata: {
+          createdAt: new Date(),
+          lastModified: new Date(),
+          sourcePage: "gov_dash",
+          verificationFlow: false,
+        },
+      });
+
       Logger.success(`Document successfully signed with ID: ${signatureId}`);
 
       // Set headers for file download
@@ -4410,6 +4440,67 @@ async function signGenericDocument(docBuffer, user, signatureId) {
     throw error;
   }
 }
+
+// Signature verification endpoint
+app.get("/api/signature/verify/:signatureId", async (req, res) => {
+  try {
+    const { signatureId } = req.params;
+    Logger.info("Verifying signature with ID:", signatureId);
+
+    // Check for valid signature ID format
+    if (!signatureId || signatureId.length < 5) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid signature ID format",
+      });
+    }
+
+    // Find the signature in the signatures collection
+    const signature = await db.collection("signatures").findOne({
+      signatureId: signatureId,
+    });
+
+    if (!signature) {
+      Logger.warn("No signature found with ID:", signatureId);
+      return res.status(404).json({
+        success: false,
+        error: "Signature not found",
+      });
+    }
+
+    // Format the response
+    const response = {
+      success: true,
+      data: {
+        signatureId: signature.signatureId,
+        documentName: signature.documentName,
+        createdAt: signature.createdAt,
+        createdBy: signature.createdBy,
+        verified: signature.verified || false,
+        documentHash: signature.documentHash,
+      },
+    };
+
+    // Create an audit log entry for the verification check
+    await db.collection("auditLog").insertOne({
+      action: "SIGNATURE_VERIFIED",
+      signatureId: signatureId,
+      timestamp: new Date(),
+      ipAddress: req.ip || "unknown",
+    });
+
+    Logger.success("Signature verification successful:", signatureId);
+    return res.json(response);
+  } catch (error) {
+    Logger.error("Error verifying signature:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
