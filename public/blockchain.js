@@ -1,7 +1,7 @@
 // Imports
 import { PROPERTY_REGISTRY_ABI, CONTRACT_ADDRESSES } from "./web3-config.js";
 
-// BlockahinManager Class
+// BlockchainManager Class
 class BlockchainManager {
   constructor() {
     this.web3 = null;
@@ -236,59 +236,45 @@ class BlockchainManager {
       );
       console.log("Matching transaction from API:", matchingTransaction);
 
-      // Get Web3 transaction data with retry mechanism
-      let web3Transaction, web3Receipt;
-      try {
-        const { transaction, receipt } = await getTransactionWithRetry(
-          this.web3,
-          txHash
-        );
-        web3Transaction = transaction;
-        web3Receipt = receipt;
-      } catch (error) {
-        console.warn(
-          "Could not fetch blockchain transaction. Using API data:",
-          error
-        );
-        // If blockchain data is not available, use API data
-        web3Transaction = matchingTransaction;
-        web3Receipt = {
-          status: true,
-          blockNumber: matchingTransaction?.blockNumber,
-          gasUsed: matchingTransaction?.gasUsed,
-        };
+      if (!matchingTransaction) {
+        throw new Error("Transaction not found in database");
       }
 
-      if (!web3Transaction && !matchingTransaction) {
-        throw new Error("Transaction not found in both blockchain and API");
-      }
-
-      let block;
-      if (web3Receipt?.blockNumber) {
-        try {
-          block = await this.web3.eth.getBlock(web3Receipt.blockNumber);
-        } catch (error) {
-          console.warn("Could not fetch block data:", error);
-        }
-      }
-
+      // Get the current blockchain ID from response
       const currentBlockchainId = responseData.data.currentBlockchainId;
       if (!currentBlockchainId) {
         throw new Error("Current blockchain ID not found");
       }
 
-      // Get property data from blockchain
-      let blockchainData;
+      // Get property data from blockchain using blockchain ID (more reliable after restore)
+      let blockchainData = null;
       try {
-        if (!this.contractInstance.methods) {
-          throw new Error("Contract methods not available");
-        }
         blockchainData = await this.contractInstance.methods
           .properties(currentBlockchainId)
           .call();
+
+        console.log("Successfully retrieved property data from blockchain:", {
+          blockchainId: currentBlockchainId,
+          propertyId: blockchainData.propertyId,
+        });
       } catch (error) {
-        console.warn("Could not fetch blockchain property data:", error);
-        blockchainData = responseData.data.currentBlockchainStatus;
+        console.warn(
+          "Could not fetch blockchain property data using contract methods:",
+          error
+        );
+        // Try alternate approach with simpler call
+        try {
+          blockchainData = await this.web3.eth.call({
+            to: this.contractInstance._address,
+            data: this.contractInstance.methods
+              .properties(currentBlockchainId)
+              .encodeABI(),
+          });
+          console.log("Retrieved property data using low-level call");
+        } catch (err) {
+          console.warn("Could not fetch blockchain property data at all:", err);
+          blockchainData = responseData.data.currentBlockchainStatus || {};
+        }
       }
 
       // Helper function to safely convert BigInt to string
@@ -297,39 +283,70 @@ class BlockchainManager {
         return value.toString();
       };
 
-      // Use API data as fallback when blockchain data is not available
+      // Since the transaction might not exist in the new blockchain instance,
+      // we'll primarily use the API data which is preserved in MongoDB
       const txData = {
         transactionHash: txHash,
-        blockNumber: toBigIntString(
-          web3Receipt?.blockNumber || matchingTransaction?.blockNumber
-        ),
-        timestamp: block?.timestamp
-          ? Number(block.timestamp) * 1000
-          : matchingTransaction?.timestamp
+        blockNumber: toBigIntString(matchingTransaction?.blockNumber || "0"),
+        timestamp: matchingTransaction?.timestamp
           ? new Date(matchingTransaction.timestamp).getTime()
           : null,
-        from: web3Transaction?.from || matchingTransaction?.from,
-        to: web3Transaction?.to || matchingTransaction?.to,
-        gasUsed: toBigIntString(
-          web3Receipt?.gasUsed || matchingTransaction?.gasUsed
-        ),
-        value: this.web3.utils.fromWei(
-          toBigIntString(web3Transaction?.value || "0"),
-          "ether"
-        ),
-        status: web3Receipt?.status ? "Success" : "Failed",
+        from: matchingTransaction?.from || "Unknown",
+        to: matchingTransaction?.to || "Unknown",
+        gasUsed: toBigIntString(matchingTransaction?.gasUsed || "0"),
+        value: "0", // Default to 0 if no value found
+        status: "Success", // Assume success for transactions in the database
+      };
+
+      // Try to get web3 data as a backup, but don't rely on it
+      try {
+        const web3Transaction = await this.web3.eth.getTransaction(txHash);
+        const web3Receipt = await this.web3.eth.getTransactionReceipt(txHash);
+
+        if (web3Transaction) {
+          txData.from = web3Transaction.from;
+          txData.to = web3Transaction.to;
+          txData.value = this.web3.utils.fromWei(
+            toBigIntString(web3Transaction.value || "0"),
+            "ether"
+          );
+        }
+
+        if (web3Receipt) {
+          txData.blockNumber = toBigIntString(web3Receipt.blockNumber);
+          txData.gasUsed = toBigIntString(web3Receipt.gasUsed);
+          txData.status = web3Receipt.status ? "Success" : "Failed";
+
+          try {
+            const block = await this.web3.eth.getBlock(web3Receipt.blockNumber);
+            if (block && block.timestamp) {
+              txData.timestamp = Number(block.timestamp) * 1000;
+            }
+          } catch (blockError) {
+            console.warn("Could not fetch block data:", blockError);
+          }
+        }
+      } catch (web3Error) {
+        console.log(
+          "Could not fetch blockchain transaction data, using API data instead:",
+          web3Error.message
+        );
+      }
+
+      // Combine all data for the response
+      const propertyData = {
+        ...responseData.data,
+        ...blockchainData,
+        ...txData,
+        blockchainId: currentBlockchainId,
+        originalBlockchainId: responseData.data.blockchainIds?.[0]?.id,
+        blockchainHistory: responseData.data.blockchainIds || [],
+        transactionHistory: responseData.data.transactions || [],
       };
 
       return {
         success: true,
-        data: {
-          ...blockchainData,
-          ...txData,
-          blockchainId: currentBlockchainId,
-          originalBlockchainId: responseData.data.blockchainIds?.[0]?.id,
-          blockchainHistory: responseData.data.blockchainIds || [],
-          transactionHistory: responseData.data.transactions || [],
-        },
+        data: propertyData,
       };
     } catch (error) {
       console.error("Error in getPropertyDetailsByTxHash:", error);
@@ -593,27 +610,6 @@ window.switchTab = function (tabName) {
     .classList.add("active");
 };
 
-// Add error handling for transaction verification
-async function getTransactionWithRetry(web3, txHash, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const [transaction, receipt] = await Promise.all([
-        web3.eth.getTransaction(txHash),
-        web3.eth.getTransactionReceipt(txHash),
-      ]);
-
-      if (transaction && receipt) {
-        return { transaction, receipt };
-      }
-    } catch (error) {
-      console.warn(`Attempt ${i + 1} failed to get transaction:`, error);
-      if (i === retries - 1) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second between retries
-    }
-  }
-  throw new Error("Transaction not found after multiple attempts");
-}
-
 // Main verification handler
 async function handleVerification() {
   const searchInput = document.getElementById("searchInput");
@@ -634,22 +630,31 @@ async function handleVerification() {
     let result;
 
     if (searchValue.startsWith("0x")) {
+      console.log(
+        `Verifying input: ${searchValue} (length: ${searchValue.length})`
+      );
+
       if (searchValue.length === 66) {
+        console.log("Treating as transaction hash");
         result = await blockchainManager.getPropertyDetailsByTxHash(
           searchValue
         );
       } else if (searchValue.length === 42) {
+        console.log("Treating as blockchain ID");
         result = await blockchainManager.getPropertyDetailsByBlockchainId(
           searchValue
         );
       } else {
-        throw new Error("Invalid input length");
+        throw new Error(
+          `Invalid input length (${searchValue.length}). Expected 42 or 66 characters.`
+        );
       }
 
       if (!result.success) {
         throw new Error(result.error || "Failed to retrieve property details");
       }
 
+      console.log("Result data:", result.data);
       resultContainer.innerHTML = createVerifiedProperty(result.data);
 
       if (result.data) {

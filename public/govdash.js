@@ -38,6 +38,10 @@ if (signatureUpdateButton) {
   });
 }
 
+function debugLog(message, data) {
+  console.log(`DEBUG: ${message}`, data !== undefined ? data : "");
+}
+
 // Fetch dashboard metrics
 async function fetchMetrics() {
   try {
@@ -368,28 +372,36 @@ function generateVerificationTable(docs) {
 
 // Global window functions
 window.showModal = function (modalId) {
+  debugLog(`Opening modal: ${modalId}`);
+
   const modalBackdrop = document.getElementById("modalBackdrop");
   const modal = document.getElementById(modalId);
 
   if (!modal) {
-    console.error(`Modal with id ${modalId} not found`);
+    debugLog(`ERROR: Modal with id ${modalId} not found`);
     return;
   }
 
   // Show backdrop
   if (modalBackdrop) {
     modalBackdrop.classList.remove("hidden");
+    debugLog("Modal backdrop displayed");
   }
 
   // Show modal
   modal.style.display = "block";
+  debugLog(`Modal ${modalId} displayed`);
 
   // Load appropriate content based on modal type
   if (modalId === "pendingModal") {
-    showPendingList();
+    debugLog("Loading pending list");
+    // Small delay to ensure modal is in the DOM
+    setTimeout(() => showPendingList(), 50);
   } else if (modalId === "transferModal") {
+    debugLog("Loading transfer list");
     showTransferList();
   } else if (modalId === "verificationModal") {
+    debugLog("Loading verification list");
     showVerificationList();
   }
 };
@@ -461,23 +473,38 @@ window.showToast = function (message, type = "success") {
 // Fetch and display pending documents
 async function fetchPendingDocuments() {
   try {
+    debugLog("Starting fetchPendingDocuments");
+
     const response = await fetch("/api/pending-requests", {
       headers: getAuthHeaders(),
     });
 
     if (!response.ok) {
+      debugLog(`API error: ${response.status}`);
       if (response.status === 401) {
         window.location.href = "/login.html";
-        return;
+        return [];
       }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
+    debugLog("API response received, parsing JSON");
     const data = await response.json();
-    console.log("Fetched pending documents:", data);
-    return data.requests || [];
+    debugLog("Parsed response data:", data);
+
+    // Check if data has the expected structure
+    if (data && Array.isArray(data.requests)) {
+      debugLog(`Found ${data.requests.length} requests in data.requests array`);
+      return data.requests;
+    } else if (Array.isArray(data)) {
+      debugLog(`Found ${data.length} requests in direct array format`);
+      return data;
+    } else {
+      debugLog("Unexpected data format, returning empty array", data);
+      return [];
+    }
   } catch (error) {
-    console.error("Error fetching pending documents:", error);
+    debugLog("Error fetching pending documents:", error);
     showToast("Failed to load pending documents", "error");
     return [];
   }
@@ -488,9 +515,58 @@ async function showPendingList() {
   const pendingDocs = await fetchPendingDocuments();
   const list = document.getElementById("pendingList");
   if (list) {
+    // Fix: Use a more flexible filter that includes "new_registration"
     const registrationDocs =
-      pendingDocs.filter((doc) => doc?.type === "registration") || [];
+      pendingDocs.filter(
+        (doc) =>
+          doc?.type === "registration" ||
+          doc?.type === "new_registration" ||
+          doc?.type?.includes("registration")
+      ) || [];
+
+    console.log("Found registration documents:", registrationDocs.length);
     list.innerHTML = generateDocumentTable(registrationDocs);
+  }
+}
+
+// Helper function to populate the list element
+async function showPendingListInElement(listElement) {
+  // Show loading indicator
+  listElement.innerHTML =
+    '<p class="text-center p-4">Loading registration documents...</p>';
+
+  try {
+    debugLog("Fetching pending documents");
+    const pendingDocs = await fetchPendingDocuments();
+    debugLog("Pending documents received:", pendingDocs);
+
+    // Check if pendingDocs exists and is an array
+    if (!pendingDocs || !Array.isArray(pendingDocs)) {
+      debugLog("Invalid pending documents received");
+      listElement.innerHTML =
+        '<p class="text-center p-4">No registration documents found (invalid data)</p>';
+      return;
+    }
+
+    // Filter for registration documents
+    debugLog("Filtering for registration documents");
+    const registrationDocs = pendingDocs.filter(
+      (doc) => doc && doc.type === "registration"
+    );
+    debugLog("Registration documents after filtering:", registrationDocs);
+
+    // Generate the table HTML
+    debugLog("Generating document table");
+    const tableHtml = generateDocumentTable(registrationDocs);
+    debugLog("Table HTML generated:", tableHtml.length);
+
+    // Update the DOM
+    debugLog("Updating DOM with table HTML");
+    listElement.innerHTML = tableHtml;
+    debugLog("DOM updated successfully");
+  } catch (error) {
+    debugLog("Error in showPendingListInElement:", error);
+    listElement.innerHTML = `<p class="text-center p-4 text-red">Error loading documents: ${error.message}</p>`;
   }
 }
 
@@ -529,58 +605,102 @@ async function showCompletedList() {
 }
 
 function generateDocumentTable(docs) {
-  if (!docs || !docs.length) {
+  debugLog("generateDocumentTable called with docs:", docs);
+
+  if (!docs || !Array.isArray(docs) || docs.length === 0) {
+    debugLog("No documents to display");
     return '<p class="text-center p-4">No documents found</p>';
   }
 
-  return `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Property ID</th>
-          <th>Type</th>
-          <th>Date</th>
-          <th>Status</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${docs
-          .map((doc) => {
-            // Extract propertyId from the document structure
-            const propertyId = doc.propertyId || "N/A";
+  try {
+    debugLog("Building table with " + docs.length + " rows");
 
-            return `
-            <tr>
-              <td>${propertyId}</td>
-              <td>${
-                (doc.propertyType || "Unknown").charAt(0).toUpperCase() +
-                (doc.propertyType || "").slice(1)
-              }</td>
-              <td>${
-                doc.createdAt
-                  ? new Date(doc.createdAt).toLocaleDateString()
-                  : "N/A"
-              }</td>
-              <td>
-                <span class="status status-${doc.status || "pending"}">
-                  ${(doc.status || "PENDING").toUpperCase()}
-                </span>
-              </td>
-              <td>
-                <button class="btn-primary" onclick="showVerificationDetails('${propertyId}', '${
-              doc.type
-            }')">
-                  View & Verify
-                </button>
-              </td>
-            </tr>
-          `;
-          })
-          .join("")}
-      </tbody>
-    </table>
-  `;
+    let rowsHtml = "";
+
+    // Process each document individually for better error handling
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      debugLog(`Processing document ${i}:`, doc);
+
+      if (!doc) {
+        debugLog(`Document ${i} is null/undefined, skipping`);
+        continue;
+      }
+
+      try {
+        // Extract properties safely
+        const propertyId = doc.propertyId || "N/A";
+        const propertyType = doc.propertyType
+          ? doc.propertyType.charAt(0).toUpperCase() + doc.propertyType.slice(1)
+          : "Unknown";
+
+        let dateStr = "N/A";
+        if (doc.createdAt) {
+          try {
+            dateStr = new Date(doc.createdAt).toLocaleDateString();
+          } catch (dateError) {
+            debugLog(`Error formatting date for doc ${i}:`, dateError);
+          }
+        }
+
+        const status = doc.status || "pending";
+        const type = doc.type || "unknown";
+
+        // Add row HTML
+        rowsHtml += `
+          <tr>
+            <td>${propertyId}</td>
+            <td>${propertyType}</td>
+            <td>${dateStr}</td>
+            <td>
+              <span class="status status-${status}">
+                ${status.toUpperCase()}
+              </span>
+            </td>
+            <td>
+              <button class="btn-primary" onclick="showVerificationDetails('${propertyId}', '${type}')">
+                View & Verify
+              </button>
+            </td>
+          </tr>
+        `;
+
+        debugLog(`Row generated for document ${i}`);
+      } catch (rowError) {
+        debugLog(`Error generating row for document ${i}:`, rowError);
+        // Skip this row but continue with others
+      }
+    }
+
+    if (!rowsHtml) {
+      debugLog("No valid rows generated");
+      return '<p class="text-center p-4">No valid documents found</p>';
+    }
+
+    // Build complete table
+    const tableHtml = `
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Property ID</th>
+            <th>Type</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+
+    debugLog("Table HTML generated successfully");
+    return tableHtml;
+  } catch (error) {
+    debugLog("Error generating document table:", error);
+    return `<p class="text-center p-4 text-red">Error generating table: ${error.message}</p>`;
+  }
 }
 
 // Verification details display
@@ -1502,77 +1622,48 @@ async function verifyPropertyOnBlockchain(propertyId, contractAddress) {
   }
 }
 
-// Reject document function
-window.rejectDocument = async function (docId) {
-  try {
-    const verificationDoc = currentVerificationDoc;
-    if (!verificationDoc) {
-      showToast("Verification document not found", "error");
-      return;
-    }
-
-    const notes = document.getElementById("verificationNotes").value;
-    if (!notes) {
-      showToast("Please add rejection notes", "error");
-      return;
-    }
-
-    const response = await fetch("/api/reject-verification", {
-      method: "POST",
-      headers: {
-        ...getAuthHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        documentId: docId,
-        type: verificationDoc.type || "document",
-        rejectionNotes: notes,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    showToast("Document rejected successfully");
-
-    // Reset verification data
-    const modal = document.getElementById("propertyVerificationModal");
-    if (modal) {
-      modal.dataset.resetVerification = "true";
-    }
-
-    closeModal("propertyVerificationModal");
-    updateDashboard();
-  } catch (error) {
-    console.error("Rejection error:", error);
-    showToast("Failed to reject document: " + error.message, "error");
-  }
-};
-
 // Document rejection
+// Updated rejectDocument function
 window.rejectDocument = async function (docId) {
   try {
-    const verificationDoc = currentVerificationDoc;
-    if (!verificationDoc) {
-      showToast("Verification document not found", "error");
-      return;
-    }
-
-    const notes = document.getElementById("verificationNotes").value;
+    // Get verification notes
+    const notes = document.getElementById("verificationNotes")?.value;
     if (!notes) {
       showToast("Please add rejection notes", "error");
       return;
     }
 
+    // Show loading state
+    const rejectButton = document.querySelector(
+      ".verification-form .btn-secondary"
+    );
+    if (rejectButton) {
+      rejectButton.disabled = true;
+      rejectButton.innerHTML =
+        '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    }
+
+    // Get the verification document from the global state
+    if (!currentVerificationDoc) {
+      showToast("No document selected for rejection", "error");
+      return;
+    }
+
+    // Determine type from currentVerificationDoc
+    const type = currentVerificationDoc.type || "document";
+
+    // Prepare rejection data
+    const rejectionData = {
+      documentId: docId,
+      type: type,
+      rejectionNotes: notes,
+    };
+
+    // Submit rejection request
     const response = await fetch("/api/reject-verification", {
       method: "POST",
       headers: getAuthHeaders(),
-      body: JSON.stringify({
-        documentId: docId,
-        type: verificationDoc.type || "registration",
-        rejectionNotes: notes,
-      }),
+      body: JSON.stringify(rejectionData),
     });
 
     if (!response.ok) {
@@ -1583,19 +1674,43 @@ window.rejectDocument = async function (docId) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    showToast("Document rejected");
+    const result = await response.json();
 
-    // Set flag to reset verification data
+    if (result.success) {
+      showToast(
+        `${type.charAt(0).toUpperCase() + type.slice(1)} rejected successfully`,
+        "success"
+      );
+    } else {
+      throw new Error(result.error || "Rejection failed");
+    }
+
+    // Reset current verification doc
+    currentVerificationDoc = null;
+
+    // Close modal and update dashboard
     const modal = document.getElementById("propertyVerificationModal");
     if (modal) {
       modal.dataset.resetVerification = "true";
+      closeModal("propertyVerificationModal");
+    } else {
+      closeModal("verificationModal");
     }
 
-    closeModal("propertyVerificationModal");
+    // Update dashboard
     updateDashboard();
   } catch (error) {
-    console.error("Error rejecting document:", error);
-    showToast("Failed to reject document: " + error.message, "error");
+    console.error("Document rejection error:", error);
+    showToast(`Rejection failed: ${error.message}`, "error");
+  } finally {
+    // Reset button state
+    const rejectButton = document.querySelector(
+      ".verification-form .btn-secondary"
+    );
+    if (rejectButton) {
+      rejectButton.disabled = false;
+      rejectButton.innerHTML = '<i class="fas fa-times"></i> Reject';
+    }
   }
 };
 
@@ -2083,7 +2198,7 @@ if (logoutButton) {
       await signOut(auth);
 
       // Redirect to login page
-      window.location.href = "/login.html";
+      window.location.href = "/Login.html";
     } catch (error) {
       console.error("Error during logout:", error);
       showToast("Logout failed: " + error.message, "error");

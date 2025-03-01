@@ -62,7 +62,7 @@ function calculateAndFormatValidUntil(verifiedAt, documentType) {
   const verificationDate = new Date(verifiedAt);
   if (isNaN(verificationDate.getTime())) return "Pending Verification";
 
-  // Use the helper function
+  // Check for lifetime documents first
   if (isLifetimeDocument(documentType)) {
     console.log("Document has lifetime validity");
     return "Lifetime Validity";
@@ -71,15 +71,17 @@ function calculateAndFormatValidUntil(verifiedAt, documentType) {
   // For non-lifetime documents
   const validUntil = new Date(verificationDate);
 
-  switch (normalizedDocType) {
-    case "rental-agreement":
-      validUntil.setFullYear(validUntil.getFullYear() + 1);
-      break;
-    case "job-letter":
-      validUntil.setMonth(validUntil.getMonth() + 3);
-      break;
-    default:
-      validUntil.setFullYear(validUntil.getFullYear() + 10);
+  // Only normalize and process specific document types
+  const normalizedDocType = (documentType || "").toLowerCase().trim();
+
+  // Only apply special validity periods to specific document types
+  if (normalizedDocType === "rental-agreement") {
+    validUntil.setFullYear(validUntil.getFullYear() + 1);
+  } else if (normalizedDocType === "job-letter") {
+    validUntil.setMonth(validUntil.getMonth() + 3);
+  } else {
+    // For all other document types, use the default 10-year validity
+    validUntil.setFullYear(validUntil.getFullYear() + 10);
   }
 
   return formatDate(validUntil);

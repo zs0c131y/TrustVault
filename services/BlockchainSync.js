@@ -444,6 +444,7 @@ class BlockchainSync {
         // Verify the property data using both IDs
         Logger.info("Verifying property registration...");
         let verificationSuccess = false;
+        let finalBlockchainId = null;
         const idsToCheck = [
           record.currentBlockchainId,
           expectedId,
@@ -465,6 +466,8 @@ class BlockchainSync {
                   propertyId: verifyData.propertyId,
                   verifyData: verifyData,
                 });
+
+                finalBlockchainId = blockchainId;
 
                 // Update the record's blockchainId if it's different
                 if (blockchainId !== record.currentBlockchainId) {
@@ -507,17 +510,96 @@ class BlockchainSync {
             "Property verification failed after multiple attempts"
           );
         }
+
+        // Set isVerified flag if the property was verified in the database
+        if (record.isVerified === true) {
+          await this.verifyPropertyOnBlockchain(
+            finalBlockchainId || record.currentBlockchainId,
+            deployer
+          );
+        }
       } catch (error) {
         Logger.error("Error registering property:", error);
         throw error;
       }
     } else {
       Logger.info(`Property ${record.propertyId} already exists on chain`);
+
+      // If property exists but verification status doesn't match what's in MongoDB
+      if (record.isVerified === true) {
+        try {
+          const onChainData = await this.propertyContract.methods
+            .properties(record.currentBlockchainId)
+            .call();
+
+          if (onChainData && !onChainData.isVerified) {
+            Logger.info(
+              `Property ${record.propertyId} needs verification status update`
+            );
+            await this.verifyPropertyOnBlockchain(
+              record.currentBlockchainId,
+              deployer
+            );
+          }
+        } catch (error) {
+          Logger.error("Error checking/updating verification status:", error);
+        }
+      }
     }
 
     // Add delay before ownership transfer
     await new Promise((resolve) => setTimeout(resolve, 2000));
     await this.handleOwnershipTransfer(record, deployer);
+  }
+
+  async verifyPropertyOnBlockchain(blockchainId, deployer) {
+    try {
+      Logger.info(
+        `Setting verified status for property with ID ${blockchainId}`
+      );
+
+      // Check if the property exists and its current status
+      const propertyData = await this.propertyContract.methods
+        .properties(blockchainId)
+        .call();
+
+      if (!propertyData || !propertyData.propertyId) {
+        throw new Error("Property not found on blockchain");
+      }
+
+      if (propertyData.isVerified) {
+        Logger.info(
+          "Property is already verified on blockchain. Skipping verification."
+        );
+        return;
+      }
+
+      // Call the verify function on the contract
+      const verifyTx = await this.propertyContract.methods
+        .verifyProperty(blockchainId)
+        .send({
+          from: deployer,
+          gas: 200000,
+        });
+
+      Logger.success(
+        `Property verification successful. Transaction hash: ${verifyTx.transactionHash}`
+      );
+
+      // Verify that the property is now marked as verified
+      const updatedProperty = await this.propertyContract.methods
+        .properties(blockchainId)
+        .call();
+
+      if (!updatedProperty.isVerified) {
+        throw new Error(
+          "Property verification failed - status not updated on blockchain"
+        );
+      }
+    } catch (error) {
+      Logger.error("Error verifying property on blockchain:", error);
+      throw error;
+    }
   }
 
   // Helper function to update blockchain ID in database

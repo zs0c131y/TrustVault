@@ -1108,7 +1108,7 @@ app.post(
         propertyInfo = JSON.parse(req.body.propertyInfo);
         witnessInfo = JSON.parse(req.body.witnessInfo);
         appointmentInfo = JSON.parse(req.body.appointmentInfo);
-        registrationType = "new_registration";
+        registrationType = "registration";
 
         Logger.info("Parsed registration data:", {
           propertyInfo: { ...propertyInfo, sensitiveData: "[REDACTED]" },

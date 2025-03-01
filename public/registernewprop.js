@@ -1306,7 +1306,7 @@ async function handleFormSubmit(e) {
       })
     );
 
-    formData.append("registrationType", "new_registration");
+    formData.append("registrationType", "registration");
 
     // Attach document files
     const documentTypes = [

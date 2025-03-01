@@ -543,7 +543,7 @@ document.getElementById("logout").addEventListener("click", async () => {
     // Then sign out from Firebase
     await new Promise((resolve) => setTimeout(resolve, 1000));
     // Redirect to login page
-    window.location.href = "/login.html";
+    window.location.href = "/Login.html";
     localStorage.clear();
   } catch (error) {
     console.error("Error during logout:", error);

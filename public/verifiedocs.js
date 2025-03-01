@@ -236,6 +236,24 @@ function renderDocuments() {
     // Load document preview
     loadDocumentPreview(doc.requestId, previewImg);
 
+    // Add click event to the entire card (except buttons)
+    const card = docCard.querySelector(".document-card"); // Make sure this selector matches your HTML structure
+    if (card) {
+      card.dataset.requestId = doc.requestId;
+      card.style.cursor = "pointer"; // Add pointer cursor to indicate clickability
+
+      card.addEventListener("click", function (event) {
+        // Don't navigate if clicking on buttons to prevent interference with their actions
+        if (
+          !event.target.closest(".preview-btn") &&
+          !event.target.closest(".download-btn")
+        ) {
+          // Navigate to viewdoc page with the request ID
+          window.location.href = `./viewdoc.html?id=${this.dataset.requestId}`;
+        }
+      });
+    }
+
     // Add to grid
     documentGrid.appendChild(docCard);
   });
