@@ -45,20 +45,58 @@ async function fetchDocumentDetails() {
   }
 }
 
-// Calculate valid until date (10 years from verification date)
-function calculateAndFormatValidUntil(verifiedAt) {
+function isLifetimeDocument(documentType) {
+  const normalizedType = (documentType || "").toLowerCase().trim();
+  const lifetimeDocuments = ["birth-cert", "marriage-cert", "death-cert"];
+  return lifetimeDocuments.includes(normalizedType);
+}
+
+function calculateAndFormatValidUntil(verifiedAt, documentType) {
+  console.log("calculateAndFormatValidUntil received:", {
+    verifiedAt,
+    documentType,
+  });
+
   if (!verifiedAt) return "Pending Verification";
 
   const verificationDate = new Date(verifiedAt);
   if (isNaN(verificationDate.getTime())) return "Pending Verification";
 
+  // Use the helper function
+  if (isLifetimeDocument(documentType)) {
+    console.log("Document has lifetime validity");
+    return "Lifetime Validity";
+  }
+
+  // For non-lifetime documents
   const validUntil = new Date(verificationDate);
-  validUntil.setFullYear(validUntil.getFullYear() + 10);
+
+  switch (normalizedDocType) {
+    case "rental-agreement":
+      validUntil.setFullYear(validUntil.getFullYear() + 1);
+      break;
+    case "job-letter":
+      validUntil.setMonth(validUntil.getMonth() + 3);
+      break;
+    default:
+      validUntil.setFullYear(validUntil.getFullYear() + 10);
+  }
 
   return formatDate(validUntil);
 }
 
 function displayDocument(doc) {
+  // Log the incoming document object
+  console.log("Document received in displayDocument:", doc);
+
+  // Always calculate validity for verified documents, ignore pre-set validUntil
+  const validityDate = doc.isVerified
+    ? calculateAndFormatValidUntil(doc.verifiedAt, doc.documentType)
+    : "Pending Verification";
+
+  // Log the calculated validity date
+  console.log("Validity calculation result:", validityDate);
+
   const content = `
     <div class="navigation">
       <button class="back-button" onclick="goBack()">← Back to Profile</button>
@@ -94,13 +132,7 @@ function displayDocument(doc) {
         </div>
         <div class="info-item">
           <label>Valid Until</label>
-          <p>${
-            doc.validUntil
-              ? formatDate(doc.validUntil)
-              : doc.isVerified
-              ? calculateAndFormatValidUntil(doc.verifiedAt)
-              : "Pending Verification"
-          }</p>
+          <p>${validityDate}</p>
         </div>
       </div>
     </div>

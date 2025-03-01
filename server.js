@@ -3319,7 +3319,6 @@ app.post("/api/sync-blockchain", enhancedVerifyToken, async (req, res) => {
 });
 
 // Document verification route
-// Document verification route
 app.post(
   "/api/complete-document-verification",
   enhancedVerifyToken,
