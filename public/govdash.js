@@ -110,6 +110,7 @@ function updateMetricsDisplay(data) {
 // Add this new function to fetch verification documents
 async function fetchVerificationDocuments() {
   try {
+    debugLog("Starting fetchVerificationDocuments");
     const response = await fetch("/api/pending-documents", {
       headers: getAuthHeaders(),
     });
@@ -117,14 +118,34 @@ async function fetchVerificationDocuments() {
     if (!response.ok) {
       if (response.status === 401) {
         window.location.href = "/login.html";
-        return;
+        return [];
       }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
+    debugLog("API response received, parsing JSON");
     const data = await response.json();
-    console.log("Fetched verification documents:", data);
-    return data.success ? data.documents : [];
+    debugLog("Fetched verification documents:", data);
+
+    // Filter out any documents that are not in pending status
+    const documents = data.success ? data.documents : [];
+    const filteredDocuments = documents.filter(
+      (doc) =>
+        // Only include documents with pending status
+        (doc.status === "pending" || !doc.status) &&
+        // Make sure they are not already verified
+        !doc.isVerified &&
+        // Also check verification status
+        doc.verificationStatus !== "verified" &&
+        doc.verificationStatus !== "rejected"
+    );
+
+    console.log(
+      `Filtered out ${
+        documents.length - filteredDocuments.length
+      } completed/verified/rejected documents`
+    );
+    return filteredDocuments;
   } catch (error) {
     console.error("Error fetching verification documents:", error);
     showToast("Failed to load verification documents", "error");
@@ -319,7 +340,7 @@ async function showVerificationList() {
 // Update the table generation function to match other tables
 function generateVerificationTable(docs) {
   if (!docs || !docs.length) {
-    return '<p class="text-center p-4">No verification documents found</p>';
+    return '<p class="text-center p-4">No pending verification documents found</p>';
   }
 
   return `
@@ -347,10 +368,8 @@ function generateVerificationTable(docs) {
                             doc.submissionDate
                           ).toLocaleDateString()}</td>
                           <td>
-                              <span class="status status-${
-                                doc.isVerified ? "verified" : "pending"
-                              }">
-                                  ${doc.isVerified ? "Verified" : "Pending"}
+                              <span class="status status-pending">
+                                  Pending Verification
                               </span>
                           </td>
                           <td>
@@ -1623,7 +1642,6 @@ async function verifyPropertyOnBlockchain(propertyId, contractAddress) {
 }
 
 // Document rejection
-// Updated rejectDocument function
 window.rejectDocument = async function (docId) {
   try {
     // Get verification notes
@@ -1643,14 +1661,35 @@ window.rejectDocument = async function (docId) {
         '<i class="fas fa-spinner fa-spin"></i> Processing...';
     }
 
-    // Get the verification document from the global state
-    if (!currentVerificationDoc) {
-      showToast("No document selected for rejection", "error");
-      return;
+    // Check if this looks like a document verification request ID (starts with "req_")
+    // This is a heuristic based on your document structure
+    let type = "document";
+    if (docId.startsWith("req_")) {
+      type = "document";
+      console.log("Document ID format detected, using type: document");
+    } else if (currentVerificationDoc) {
+      type = currentVerificationDoc.type || "document";
+      console.log("Using type from currentVerificationDoc:", type);
+    } else {
+      // Try to determine type from modal context
+      const propertyModal = document.getElementById(
+        "propertyVerificationModal"
+      );
+      if (propertyModal && propertyModal.style.display !== "none") {
+        // If property modal is open, check which tab is active
+        const activeTab = document.querySelector(".tab.active");
+        if (activeTab) {
+          const tabType = activeTab.textContent.toLowerCase();
+          if (tabType.includes("transfer")) {
+            type = "transfer";
+          } else {
+            type = "registration"; // Default for property modal
+          }
+        }
+      }
     }
 
-    // Determine type from currentVerificationDoc
-    const type = currentVerificationDoc.type || "document";
+    console.log(`Rejecting ${type} with ID: ${docId}`);
 
     // Prepare rejection data
     const rejectionData = {
@@ -1659,6 +1698,8 @@ window.rejectDocument = async function (docId) {
       rejectionNotes: notes,
     };
 
+    console.log("Sending rejection data:", rejectionData);
+
     // Submit rejection request
     const response = await fetch("/api/reject-verification", {
       method: "POST",
@@ -1666,39 +1707,43 @@ window.rejectDocument = async function (docId) {
       body: JSON.stringify(rejectionData),
     });
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        window.location.href = "/login.html";
-        return;
-      }
-      throw new Error(`HTTP error! status: ${response.status}`);
+    let result;
+    try {
+      result = await response.json();
+    } catch (e) {
+      console.error("Error parsing response JSON:", e);
+      throw new Error("Invalid response from server");
     }
 
-    const result = await response.json();
+    if (!response.ok) {
+      console.error("Error response details:", result);
+      throw new Error(result.error || `Server returned ${response.status}`);
+    }
 
     if (result.success) {
-      showToast(
-        `${type.charAt(0).toUpperCase() + type.slice(1)} rejected successfully`,
-        "success"
+      showToast(`Document rejected successfully`, "success");
+
+      // Reset current verification doc
+      currentVerificationDoc = null;
+
+      // Close the appropriate modal
+      const propertyModal = document.getElementById(
+        "propertyVerificationModal"
       );
+      const verificationModal = document.getElementById("verificationModal");
+
+      if (propertyModal && propertyModal.style.display !== "none") {
+        propertyModal.dataset.resetVerification = "true";
+        closeModal("propertyVerificationModal");
+      } else if (verificationModal) {
+        closeModal("verificationModal");
+      }
+
+      // Update dashboard
+      updateDashboard();
     } else {
       throw new Error(result.error || "Rejection failed");
     }
-
-    // Reset current verification doc
-    currentVerificationDoc = null;
-
-    // Close modal and update dashboard
-    const modal = document.getElementById("propertyVerificationModal");
-    if (modal) {
-      modal.dataset.resetVerification = "true";
-      closeModal("propertyVerificationModal");
-    } else {
-      closeModal("verificationModal");
-    }
-
-    // Update dashboard
-    updateDashboard();
   } catch (error) {
     console.error("Document rejection error:", error);
     showToast(`Rejection failed: ${error.message}`, "error");
@@ -1978,6 +2023,12 @@ function getActivityDescription(activity) {
       return `Document ${activity.docId} verified with hash ${activity.hash}`;
     case "transfer":
       return `Transfer ${activity.docId} processed`;
+    case "reject":
+      return `${activity.docId} rejected: ${
+        activity.details || "No details provided"
+      }`;
+    case "signature":
+      return `Document ${activity.docId} signed`;
     default:
       return `Action performed on ${activity.docId}`;
   }
@@ -2047,12 +2098,20 @@ function formatTimeAgo(timestamp) {
 
 function getActivityIcon(type) {
   switch (type) {
+    case "verify":
+      return "check-circle";
+    case "transfer":
+      return "exchange-alt";
+    case "reject":
+      return "times-circle";
+    case "signature":
+      return "file-signature";
+    case "DOCUMENT_VERIFICATION":
+      return "file-alt";
     case "PROPERTY_REGISTRATION":
       return "home";
     case "PROPERTY_TRANSFER":
       return "exchange-alt";
-    case "DOCUMENT_VERIFICATION":
-      return "file-alt";
     default:
       return "circle";
   }

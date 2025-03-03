@@ -59,12 +59,23 @@ async function viewDocument(docKey) {
     const urlParams = new URLSearchParams(window.location.search);
     const propertyId = urlParams.get("id");
 
-    const response = await fetch(
-      `/api/property/${propertyId}/document/${docKey}/view`,
+    // Try registration type first
+    let response = await fetch(
+      `/api/property/${propertyId}/document/${docKey}/view?type=registration`,
       {
         headers: getAuthHeaders(),
       }
     );
+
+    // If registration fails, try transfer
+    if (!response.ok && response.status === 404) {
+      response = await fetch(
+        `/api/property/${propertyId}/document/${docKey}/view?type=transfer`,
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+    }
 
     if (!response.ok) {
       throw new Error(`Failed to fetch document: ${response.statusText}`);
@@ -84,12 +95,23 @@ async function downloadDocument(docKey) {
     const urlParams = new URLSearchParams(window.location.search);
     const propertyId = urlParams.get("id");
 
-    const response = await fetch(
-      `/api/property/${propertyId}/document/${docKey}/download`,
+    // Try registration type first
+    let response = await fetch(
+      `/api/property/${propertyId}/document/${docKey}/download?type=registration`,
       {
         headers: getAuthHeaders(),
       }
     );
+
+    // If registration fails, try transfer
+    if (!response.ok && response.status === 404) {
+      response = await fetch(
+        `/api/property/${propertyId}/document/${docKey}/download?type=transfer`,
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+    }
 
     if (!response.ok) {
       throw new Error(`Failed to download document: ${response.statusText}`);

@@ -31,6 +31,8 @@ let blockchainSync;
 
 // Initialize express app and environment variables
 const app = express();
+app.use(express.json({ limit: "100mb" }));
+app.use(express.urlencoded({ extended: true, limit: "100mb" }));
 dotenv.config();
 
 // Basic server configuration
@@ -180,8 +182,8 @@ app.use(
 app.options("*", cors());
 
 // Body parser configuration
-app.use(bodyParser.json({ limit: "10kb" }));
-app.use(bodyParser.urlencoded({ extended: true, limit: "10kb" }));
+app.use(bodyParser.json({ limit: "100mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "100mb" }));
 
 // Protected route for govdash.html - must be defined BEFORE general static serving
 app.get("/govdash.html", (req, res) => {
@@ -276,7 +278,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 100 * 1024 * 1024, // 100MB limit
     files: 7,
   },
   fileFilter: (req, file, cb) => {
@@ -2791,50 +2793,59 @@ app.get(
 // Get dashboard metrics
 app.get("/api/metrics", async (req, res) => {
   try {
-    const [registrationRequests, transferRequests, verificationDocuments] =
-      await Promise.all([
-        // Get registration requests
-        db
-          .collection("registrationRequests")
-          .aggregate([
-            { $match: { status: "pending" } },
-            {
-              $group: {
-                _id: null,
-                total: { $sum: 1 },
-                urgent: {
-                  $sum: { $cond: [{ $eq: ["$priority", "urgent"] }, 1, 0] },
+    const [
+      registrationRequests,
+      transferRequests,
+      pendingVerificationDocuments,
+      verifiedDocuments,
+    ] = await Promise.all([
+      // Get registration requests
+      db
+        .collection("registrationRequests")
+        .aggregate([
+          { $match: { status: "pending" } },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              urgent: {
+                $sum: { $cond: [{ $eq: ["$priority", "urgent"] }, 1, 0] },
+              },
+            },
+          },
+        ])
+        .toArray(),
+
+      // Get transfer requests
+      db
+        .collection("transferRequests")
+        .aggregate([
+          { $match: { status: "pending" } },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              pendingApproval: {
+                $sum: {
+                  $cond: [{ $eq: ["$approvalStatus", "pending"] }, 1, 0],
                 },
               },
             },
-          ])
-          .toArray(),
+          },
+        ])
+        .toArray(),
 
-        // Get transfer requests
-        db
-          .collection("transferRequests")
-          .aggregate([
-            { $match: { status: "pending" } },
-            {
-              $group: {
-                _id: null,
-                total: { $sum: 1 },
-                pendingApproval: {
-                  $sum: {
-                    $cond: [{ $eq: ["$approvalStatus", "pending"] }, 1, 0],
-                  },
-                },
-              },
-            },
-          ])
-          .toArray(),
+      // Get document verification count - only pending (not verified/completed/rejected)
+      db.collection("verificationRequests").countDocuments({
+        status: { $nin: ["rejected", "completed"] },
+        isVerified: { $ne: true },
+      }),
 
-        // Get document verification count from blockchainTxns
-        db.collection("blockchainTxns").countDocuments({
-          type: "DOCUMENT_VERIFICATION",
-          isVerified: false,
-        }),
-      ]);
+      // Get count of verified documents
+      db.collection("verificationRequests").countDocuments({
+        $or: [{ status: "completed" }, { isVerified: true }],
+      }),
+    ]);
 
     // Format response
     res.json({
@@ -2842,8 +2853,8 @@ app.get("/api/metrics", async (req, res) => {
       urgentCount: registrationRequests[0]?.urgent || 0,
       transferCount: transferRequests[0]?.total || 0,
       pendingApprovalCount: transferRequests[0]?.pendingApproval || 0,
-      verificationCount: verificationDocuments,
-      verifiedCount: 0, // This will be updated when verification is complete
+      verificationCount: pendingVerificationDocuments,
+      verifiedCount: verifiedDocuments,
     });
   } catch (error) {
     Logger.error("Error fetching metrics:", error);
@@ -2851,7 +2862,6 @@ app.get("/api/metrics", async (req, res) => {
   }
 });
 
-// Get pending documents with blockchain details
 // Get pending documents with blockchain details
 app.get("/api/pending-requests", enhancedVerifyToken, async (req, res) => {
   try {
@@ -3024,9 +3034,22 @@ app.get("/api/pending-requests", enhancedVerifyToken, async (req, res) => {
 // Get document requests
 app.get("/api/verification-requests", enhancedVerifyToken, async (req, res) => {
   try {
+    // Log the start of the operation
+    Logger.info("Fetching verification requests, excluding rejected ones");
+
+    // Use a more explicit match stage to filter out rejected documents
     const verificationRequests = await db
       .collection("verificationRequests")
       .aggregate([
+        {
+          // Ensure status is NOT rejected
+          $match: {
+            $or: [
+              { status: { $ne: "rejected" } },
+              { status: { $exists: false } }, // For documents without status field
+            ],
+          },
+        },
         {
           $lookup: {
             from: "blockchainTxns",
@@ -3080,7 +3103,10 @@ app.get("/api/verification-requests", enhancedVerifyToken, async (req, res) => {
       ])
       .toArray();
 
-    Logger.info(`Found ${verificationRequests.length} verification requests`);
+    // Log what we found
+    Logger.info(
+      `Found ${verificationRequests.length} non-rejected verification requests`
+    );
 
     res.json({
       success: true,
@@ -3100,29 +3126,41 @@ app.get("/api/verification-requests", enhancedVerifyToken, async (req, res) => {
 // Get all pending documents
 app.get("/api/pending-documents", enhancedVerifyToken, async (req, res) => {
   try {
-    // First fetch from blockchainTxns - all unverified document verifications
+    // First get all non-rejected verificationRequests that are still pending verification
+    const verificationRequests = await db
+      .collection("verificationRequests")
+      .find({
+        // Only get documents that are pending verification
+        $and: [
+          // Exclude rejected documents
+          { status: { $ne: "rejected" } },
+          // Only include pending documents, exclude completed/verified
+          { status: { $in: ["pending", null] } },
+          // Additional check to make sure we don't get verified documents
+          { isVerified: { $ne: true } },
+        ],
+      })
+      .toArray();
+
+    // Extract the requestIds
+    const validRequestIds = verificationRequests.map((req) => req.requestId);
+
+    Logger.info(
+      `Found ${validRequestIds.length} pending verification requests`
+    );
+
+    // Then fetch blockchain documents that match these requestIds
     const blockchainDocs = await db
       .collection("blockchainTxns")
       .find({
         type: "DOCUMENT_VERIFICATION",
-        isVerified: false,
+        requestId: { $in: validRequestIds },
+        // Add an additional filter to exclude verified documents in blockchain collection
+        isVerified: { $ne: true },
       })
       .toArray();
 
-    Logger.info(`Found ${blockchainDocs.length} pending blockchain documents`);
-
-    // Get all requestIds
-    const requestIds = blockchainDocs.map((doc) => doc.requestId);
-
-    // Fetch corresponding verification requests
-    const verificationRequests = await db
-      .collection("verificationRequests")
-      .find({
-        requestId: { $in: requestIds },
-      })
-      .toArray();
-
-    Logger.info(`Found ${verificationRequests.length} verification requests`);
+    Logger.info(`Found ${blockchainDocs.length} matching blockchain documents`);
 
     // Create a map for quick lookup
     const verificationMap = new Map(
@@ -3386,7 +3424,7 @@ app.post(
         try {
           Logger.info("Connecting to IPFS...");
           const ipfs = create({
-            host: "localhost",
+            host: "127.0.0.1",
             port: 5001,
             protocol: "http",
           });
@@ -3862,6 +3900,237 @@ app.post(
     }
   }
 );
+
+// Document/Property Rejection Route
+app.post("/api/reject-verification", enhancedVerifyToken, async (req, res) => {
+  const session = await client.startSession();
+
+  try {
+    const { documentId, type, rejectionNotes } = req.body;
+    Logger.info("Processing rejection for:", documentId, "Type:", type);
+
+    if (!documentId || !rejectionNotes) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing document ID or rejection notes",
+      });
+    }
+
+    await session.startTransaction();
+
+    try {
+      // First, try to find the document in verificationRequests by requestId
+      let document = await db.collection("verificationRequests").findOne({
+        requestId: documentId,
+      });
+
+      if (document) {
+        // We found it in verificationRequests, so we should handle as document type
+        Logger.info("Found document in verificationRequests");
+
+        // Update verification request
+        await db.collection("verificationRequests").updateOne(
+          { requestId: documentId },
+          {
+            $set: {
+              status: "rejected",
+              rejectionReason: rejectionNotes,
+              rejectedAt: new Date(),
+              rejectedBy: req.user.email,
+              lastModified: new Date(),
+            },
+            $push: {
+              verificationSteps: {
+                step: "verification_rejected",
+                status: "rejected",
+                timestamp: new Date(),
+                verifier: req.user.email,
+                notes: rejectionNotes,
+              },
+            },
+          },
+          { session }
+        );
+
+        // Update blockchain transaction record if it exists
+        const blockchainDoc = await db.collection("blockchainTxns").findOne({
+          requestId: documentId,
+        });
+
+        if (blockchainDoc) {
+          await db.collection("blockchainTxns").updateOne(
+            { requestId: documentId },
+            {
+              $set: {
+                status: "rejected",
+                rejectionReason: rejectionNotes,
+                rejectedAt: new Date(),
+                rejectedBy: req.user.email,
+                lastModified: new Date(),
+              },
+            },
+            { session }
+          );
+        }
+
+        // Type for activity logs
+        const actualType = "document";
+      } else if (type === "registration" || type === "transfer") {
+        // For property registration or transfer
+        const collection =
+          type === "registration" ? "registrationRequests" : "transferRequests";
+
+        // Try to find the document based on various ID fields
+        const query = {
+          $or: [
+            { "propertyInfo.propertyId": documentId },
+            { propertyId: documentId },
+            { requestId: documentId },
+            {
+              _id: ObjectId.isValid(documentId)
+                ? new ObjectId(documentId)
+                : null,
+            },
+          ],
+        };
+
+        document = await db.collection(collection).findOne(query);
+
+        if (!document) {
+          await session.abortTransaction();
+          return res.status(404).json({
+            success: false,
+            error: `${
+              type.charAt(0).toUpperCase() + type.slice(1)
+            } request not found with ID: ${documentId}`,
+          });
+        }
+
+        // Update request status
+        await db.collection(collection).updateOne(
+          { _id: document._id },
+          {
+            $set: {
+              status: "rejected",
+              rejectionReason: rejectionNotes,
+              rejectedAt: new Date(),
+              rejectedBy: req.user.email,
+              lastModified: new Date(),
+            },
+          },
+          { session }
+        );
+
+        const actualType = type;
+      } else {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          error: "Invalid document type",
+        });
+      }
+
+      // Create activity entry
+      const activityType = document.personalInfo
+        ? "DOCUMENT_VERIFICATION"
+        : type === "registration"
+        ? "PROPERTY_REGISTRATION"
+        : "PROPERTY_TRANSFER";
+
+      const activityEntry = {
+        activityType: activityType,
+        status: "REJECTED",
+        timestamp: new Date(),
+        user: {
+          email: req.user.email,
+          role: "government_official",
+        },
+        document: document.personalInfo
+          ? {
+              id: documentId,
+              requestId: documentId,
+              type: document.personalInfo.documentType || "document",
+            }
+          : undefined,
+        property: !document.personalInfo
+          ? {
+              id: documentId,
+            }
+          : undefined,
+        transaction: {
+          id: documentId,
+          documentType: document.personalInfo ? "document" : type,
+          rejectionDate: new Date(),
+        },
+        details: {
+          description: `${
+            document.personalInfo
+              ? "Document"
+              : type.charAt(0).toUpperCase() + type.slice(1)
+          } rejected`,
+          notes: rejectionNotes,
+          ipAddress: req.ip,
+        },
+        metadata: {
+          createdAt: new Date(),
+          lastModified: new Date(),
+          sourcePage: "govdash",
+          verificationFlow: true,
+        },
+      };
+
+      await db
+        .collection("recentActivity")
+        .insertOne(activityEntry, { session });
+
+      // Create audit log entry
+      await db.collection("auditLog").insertOne(
+        {
+          action: `${
+            document.personalInfo ? "DOCUMENT" : type.toUpperCase()
+          }_REJECTED`,
+          documentId: documentId,
+          documentType: document.personalInfo ? "document" : type,
+          rejector: req.user.email,
+          timestamp: new Date(),
+          notes: rejectionNotes,
+          ipAddress: req.ip,
+        },
+        { session }
+      );
+
+      await session.commitTransaction();
+      Logger.success(`Rejection completed for ID: ${documentId}`);
+
+      res.json({
+        success: true,
+        message: `Rejection completed successfully`,
+        data: {
+          documentId: documentId,
+          type: document.personalInfo ? "document" : type,
+          status: "rejected",
+        },
+      });
+    } catch (error) {
+      Logger.error("Transaction error:", error);
+      await session.abortTransaction();
+      throw error;
+    }
+  } catch (error) {
+    Logger.error("Error rejecting verification:", error);
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    res.status(500).json({
+      success: false,
+      error: "Failed to reject verification",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  } finally {
+    await session.endSession();
+  }
+});
 
 // View verification document route
 app.get(
@@ -4509,7 +4778,7 @@ app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
-        error: "File is too large. Maximum size is 10MB",
+        error: "File is too large. Maximum size is 20MB",
       });
     }
     return res.status(400).json({
