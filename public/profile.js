@@ -217,8 +217,8 @@ async function fetchVerifiedDocuments() {
     documentContainer.innerHTML = `
       <h2>Document Center</h2>
       <div class="info-item">
-        <label>Verified Documents:</label>
-        <p>${documents.length} Documents <span class="verified-badge">Verified</span></p>
+        <label>Pending Verification:</label>
+        <p>${documents.length} Documents <span class="verified-badge">Unverified</span></p>
       </div>
       <div class="documents-list"></div>
     `;
