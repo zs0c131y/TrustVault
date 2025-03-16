@@ -42,6 +42,97 @@ function debugLog(message, data) {
   console.log(`DEBUG: ${message}`, data !== undefined ? data : "");
 }
 
+// Fetch and display user name
+async function getUserName() {
+  try {
+    debugLog("Fetching user data...");
+    const token = getToken();
+    if (!token) {
+      debugLog("No authentication token available");
+      throw new Error("No token available");
+    }
+
+    // Make request to the server to get user data
+    const response = await fetch("/getUserData", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-Device-ID": getDeviceId(),
+      },
+    });
+
+    if (!response.ok) {
+      debugLog(`Failed to fetch user data: ${response.status}`);
+      throw new Error(`Failed to fetch user data: ${response.status}`);
+    }
+
+    const data = await response.json();
+    debugLog("User data received:", data);
+
+    return data.name || "User";
+  } catch (error) {
+    console.error("Error fetching user data:", error);
+    return "User"; // Default fallback
+  }
+}
+
+// Fetch and display user name
+async function updateUserInfo() {
+  try {
+    debugLog("Updating user info...");
+
+    // Get user's name
+    const name = await getUserName();
+    debugLog("User name retrieved:", name);
+
+    // Extract first and last initials for avatar
+    const nameParts = name.split(" ");
+    let avatarText;
+
+    if (nameParts.length > 1) {
+      // If we have first and last name, use both initials
+      avatarText =
+        nameParts[0].charAt(0).toUpperCase() +
+        nameParts[nameParts.length - 1].charAt(0).toUpperCase();
+    } else {
+      // If only one name part, use first two letters or duplicate first letter
+      avatarText =
+        name.length > 1
+          ? name.charAt(0).toUpperCase() + name.charAt(1).toUpperCase()
+          : name.charAt(0).toUpperCase() + name.charAt(0).toUpperCase();
+    }
+
+    // Update avatar and username in DOM
+    const avatarElement = document.getElementById("avatar");
+    const userNameElement = document.getElementById("userFName");
+
+    if (avatarElement) {
+      avatarElement.textContent = avatarText;
+      debugLog("Avatar updated to:", avatarText);
+    } else {
+      debugLog("Avatar element not found in DOM");
+    }
+
+    if (userNameElement) {
+      userNameElement.textContent = name;
+      debugLog("Username updated to:", name);
+    } else {
+      debugLog("Username element not found in DOM");
+    }
+
+    return { name, avatarText };
+  } catch (error) {
+    console.error("Error updating user info:", error);
+
+    // Fallback to default values if there's an error
+    const avatarElement = document.getElementById("avatar");
+    const userNameElement = document.getElementById("userFName");
+
+    if (avatarElement) avatarElement.textContent = "US";
+    if (userNameElement) userNameElement.textContent = "User";
+  }
+}
+
 // Fetch dashboard metrics
 async function fetchMetrics() {
   try {
@@ -2036,19 +2127,34 @@ function getActivityDescription(activity) {
 
 // Initialize dashboard
 async function updateDashboard() {
-  await Promise.all([
-    fetchMetrics(),
-    showPendingList(),
-    showTransferList(),
-    showVerificationList(),
-    startActivityRefresh(), // Add this line
-  ]);
+  try {
+    console.log("Initializing dashboard...");
+    await updateUserInfo();
+    await Promise.all([
+      fetchMetrics(),
+      showPendingList(),
+      showTransferList(),
+      showVerificationList(),
+      startActivityRefresh(),
+    ]);
+
+    console.log("Dashboard initialization complete");
+  } catch (error) {
+    console.error("Error during dashboard initialization:", error);
+    showToast("Error loading dashboard", "error");
+  }
 }
 
 // Event Listeners
 window.addEventListener("load", () => {
+  console.log("Page loaded, initializing dashboard...");
   updateDashboard();
-  setInterval(updateDashboard, 300000);
+
+  // Set up periodic refresh
+  setInterval(() => {
+    console.log("Running periodic dashboard refresh");
+    updateDashboard();
+  }, 300000); // Refresh every 5 minutes
 });
 
 // Modal backdrop click handler
@@ -2266,7 +2372,7 @@ if (logoutButton) {
       try {
         await signOut(auth);
         localStorage.clear();
-        window.location.href = "/login.html";
+        window.location.href = "/Login.html";
       } catch (firebaseError) {
         console.error("Firebase signout error:", firebaseError);
       }

@@ -72,7 +72,7 @@ async function getUserName() {
     }
 
     const data = await response.json();
-    return data.name || "User";
+    return data.name;
   } catch (error) {
     console.error("Error fetching user data:", error);
     return "User";
@@ -91,7 +91,7 @@ function getTimeBasedGreeting() {
 function initializeGreeting() {
   const greetingElement = document.querySelector("h1");
   if (greetingElement) {
-    greetingElement.textContent = `${getTimeBasedGreeting()}, User`;
+    greetingElement.textContent = `${getTimeBasedGreeting()}`;
   }
 }
 

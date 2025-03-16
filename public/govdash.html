@@ -24,9 +24,9 @@
       <div class="sidebar">
         <div class="card">
           <div class="profile-info">
-            <div class="avatar">SW</div>
-            <h2>Sarah Wilson</h2>
-            <p class="text-gray">Document Verifier</p>
+            <div class="avatar" id="avatar"></div>
+            <h2 id="userFName"></h2>
+            <p class="text-gray">Government Official</p>
           </div>
           <div class="button-group">
             <button class="btn-primary" onclick="showModal('signatureModal')">
@@ -51,8 +51,8 @@
               <div class="metric-label">
                 <i class="fas fa-clock"></i> Registration Verifications
               </div>
-              <div class="metric-value text-red">12</div>
-              <div class="metric-subtext">4 urgent</div>
+              <div class="metric-value text-red"></div>
+              <div class="metric-subtext"></div>
             </div>
           </div>
 
@@ -62,8 +62,8 @@
               <div class="metric-label">
                 <i class="fas fa-exchange-alt"></i> Transfer Requests
               </div>
-              <div class="metric-value text-yellow">8</div>
-              <div class="metric-subtext">2 pending approval</div>
+              <div class="metric-value text-yellow"></div>
+              <div class="metric-subtext"></div>
             </div>
           </div>
 
@@ -76,8 +76,8 @@
               <div class="metric-label">
                 <i class="fas fa-file-alt"></i> Document Verifications
               </div>
-              <div class="metric-value text-green">25</div>
-              <div class="metric-subtext">Last: 5 mins ago</div>
+              <div class="metric-value text-green"></div>
+              <div class="metric-subtext"></div>
             </div>
           </div>
         </div>
@@ -185,11 +185,8 @@
         <div class="modal-body">
           <form id="signatureForm" enctype="multipart/form-data">
             <div class="form-group">
-              <label for="docFile">Select Document to Sign:</label>
+              <label for="docFile">Select PDF Document to Sign:</label>
               <input type="file" id="docFile" name="document" required />
-              <p class="file-info">
-                Supported formats: PDF, DOC, DOCX, JPG, PNG
-              </p>
             </div>
 
             <div
