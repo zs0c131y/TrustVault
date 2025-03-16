@@ -1,333 +1,226 @@
-# TrustVault 🏢
+# TrustVault
 
-<div align="center">
-  
-  ![TrustVault Banner](https://via.placeholder.com/800x200/0a192f/ffffff?text=TrustVault:+Blockchain-Powered+Land+Registry)
+TrustVault is a blockchain-based document verification and property registry system that leverages Ethereum smart contracts for secure, transparent, and tamper-proof record-keeping.
 
-  *Revolutionizing property management and document verification through blockchain technology*
+![TrustVault Platform](https://github.com/zs0c131y/TrustVault/blob/main/public/assets/trustland.png)
 
-  [![Stars](https://img.shields.io/github/stars/zs0c131y/trustvault?style=for-the-badge&logo=github&color=f7b15c)](https://github.com/zs0c131y/trustvault/stargazers)
-  [![Forks](https://img.shields.io/github/forks/zs0c131y/trustvault?style=for-the-badge&logo=github&color=7ab55c)](https://github.comzs0c131y/trustvault/network/members)
-  [![Contributors](https://img.shields.io/github/contributors/zs0c131y/trustvault?style=for-the-badge&logo=github&color=5c7ab5)](https://github.com/zs0c131y/trustvault/graphs/contributors)
-  [![License](https://img.shields.io/github/license/zs0c131y/trustvault?style=for-the-badge&logo=github&color=b55c7a)](LICENSE)
+## 📋 Overview
 
-  <a href="#installation">Installation</a> •
-  <a href="#features">Features</a> •
-  <a href="#usage">Usage</a> •
-  <a href="#documentation">Docs</a> •
-  <a href="#contributing">Contributing</a>
-</div>
+TrustVault provides a comprehensive solution for:
 
-## 🌟 Overview
+- **Property Registration & Verification**: Digitally register property details with blockchain-backed verification
+- **Property Ownership Transfer**: Securely transfer property ownership with blockchain records
+- **Document Verification**: Authenticate and store important documents with cryptographic proof
+- **Government Integration**: Dedicated portal for government officials to verify and process requests
 
-TrustVault is a groundbreaking blockchain-based platform that revolutionizes land registry and document verification. By leveraging cutting-edge blockchain technology, we provide an immutable, transparent, and secure system for managing property records and verifying important documents.
+The system combines traditional database storage with blockchain verification to create a hybrid architecture that benefits from the security of blockchain while maintaining the performance and flexibility of traditional systems.
 
-<div align="center">
-<!--   <img src="https://via.placeholder.com/800x400/0a192f/ffffff?text=TrustVault+Platform+Overview" alt="TrustVault Overview" /> -->
-</div>
+## 🚀 Features
 
-## ⚡ Key Features
+### Property Registry
+- Register new properties with detailed information
+- Blockchain-backed verification process
+- Secure ownership records
+- Transparent transaction history
+- Digital document storage and verification
 
-<table>
-<tr>
-<td>
-<details>
-<summary><b>🏢 Land Registry Management</b></summary>
+### Document Verification
+- Verify important personal documents (ID cards, certificates, etc.)
+- Blockchain timestamping and authentication
+- IPFS storage integration for document content
+- Revocation mechanisms for invalid documents
+- Expiration and renewal management
 
-- Digitized property records with blockchain security
-- Immutable transaction history
-- Smart contract-based ownership transfers
-- Double-selling prevention mechanism
-- Real-time property status tracking
-</details>
-</td>
-<td>
-<details>
-<summary><b>📄 Document Verification</b></summary>
-
-- Digital signature integration
-- Multi-authority verification system
-- Tamper-proof document storage
-- Instant verification process
-- Blockchain-backed authenticity
-</details>
-</td>
-</tr>
-<tr>
-<td>
-<details>
-<summary><b>👤 User Management</b></summary>
-
-- Secure JWT authentication
+### User Management
+- Secure authentication system
 - Role-based access control
-- Comprehensive profile management
-- Activity tracking and logging
-- Secure password handling
-</details>
-</td>
-<td>
-<details>
-<summary><b>🔐 Security Features</b></summary>
+- Profile management
+- Multi-device session management
+- Appointment scheduling with registrar offices
 
-- Advanced rate limiting
-- XSS protection
+### Government Portal
+- Dedicated dashboard for government officials
+- Request verification and approval workflow
+- Analytics and metrics dashboard
+- Document verification tools
+- Audit logging and compliance tracking
+
+## 🔧 Technical Architecture
+
+### Smart Contracts
+TrustVault utilizes two main Ethereum smart contracts:
+
+1. **PropertyRegistry.sol**: Handles property registration, verification, and ownership transfers
+2. **DocumentVerification.sol**: Manages document verification, revocation, and updates
+
+### Backend
+- **Node.js/Express**: RESTful API server
+- **MongoDB**: Primary database for storing user data and transaction records
+- **Hardhat**: Ethereum development environment
+- **IPFS**: Decentralized file storage system
+
+### Frontend
+- **HTML/CSS/JavaScript**: Client-side implementation
+- **Web3.js**: Ethereum blockchain interaction
+- **Firebase Authentication**: User authentication system
+
+### Security Features
+- JWT-based authentication
+- Rate limiting protection
+- XSS and CSRF protection
+- Helmet security headers
 - Input sanitization
-- Secure file uploads
-- CORS protection
-</details>
-</td>
-</tr>
-</table>
+- Secure file handling
 
-## 🛠️ Technology Stack
-
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="96">
-        <img src="https://skillicons.dev/icons?i=html" width="48" height="48" alt="HTML" />
-        <br>HTML5
-      </td>
-      <td align="center" width="96">
-        <img src="https://skillicons.dev/icons?i=css" width="48" height="48" alt="CSS" />
-        <br>CSS3
-      </td>
-      <td align="center" width="96">
-        <img src="https://skillicons.dev/icons?i=js" width="48" height="48" alt="JavaScript" />
-        <br>JavaScript
-      </td>
-      <td align="center" width="96">
-        <img src="https://skillicons.dev/icons?i=nodejs" width="48" height="48" alt="Node.js" />
-        <br>Node.js
-      </td>
-      <td align="center" width="96">
-        <img src="https://skillicons.dev/icons?i=express" width="48" height="48" alt="Express.js" />
-        <br>Express
-      </td>
-    </tr>
-    <tr>
-      <td align="center" width="96">
-        <img src="https://skillicons.dev/icons?i=mongodb" width="48" height="48" alt="MongoDB" />
-        <br>MongoDB
-      </td>
-      <td align="center" width="96">
-        <img src="https://skillicons.dev/icons?i=solidity" width="48" height="48" alt="Solidity" />
-        <br>Solidity
-      </td>
-      <td align="center" width="96">
-        <img src="https://user-images.githubusercontent.com/25181517/183898674-75a4a1b1-f960-4ea9-abcb-637170a00a75.png" width="48" height="48" alt="Web3.js" />
-        <br>Web3.js
-      </td>
-      <td align="center" width="96">
-        <img src="https://skillicons.dev/icons?i=remix" width="48" height="48" alt="Hardhat" />
-        <br>Hardhat
-      </td>
-      <td align="center" width="96">
-        <img src="https://avatars.githubusercontent.com/u/6250754?s=200&v=4" width="48" height="48" alt="OpenZeppelin" />
-        <br>OpenZeppelin
-      </td>
-    </tr>
-  </table>
-</div>
-
-## 📁 Project Structure
-
-```
-trustvault/
-├── 📂 middleware/      # Express middleware
-│   └── 📜 authProtection.js
-├── 📂 node_modules/    # Project dependencies
-├── 📂 public/          # Static files
-│   ├── 📜 index.html
-│   └── 📜 styles.css
-├── 📂 uploads/        # Secure document storage
-├── 📜 .env            # Environment configuration
-├── 📜 config.js       # Application config
-├── 📜 nodemon.json    # Nodemon settings
-├── 📜 package.json    # Project metadata
-└── 📜 server.js       # Main application entry
-```
-
-## 🚀 Getting Started
+## 🛠️ Installation & Setup
 
 ### Prerequisites
+- Node.js v18+ and npm
+- MongoDB
+- Hardhat
+- IPFS daemon (optional for local development)
+- Ethereum wallet (MetaMask recommended)
 
-<table>
-<tr>
-<td>
-  
-- Node.js `v18.x` or higher
-- MongoDB `v6.x` or higher
-- MetaMask wallet extension
-- Git
-  
-</td>
-<td>
-<img src="https://via.placeholder.com/200x200/0a192f/ffffff?text=Prerequisites" align="right" alt="Prerequisites" />
-</td>
-</tr>
-</table>
+### Installation Steps
 
-### Installation
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/zs0c131y/TrustVault.git
+   cd TrustVault
+   ```
 
-1️⃣ Clone the repository
-```bash
-git clone https://github.com/zs0c131y/trustvault.git
-cd trustvault
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Environment setup**
+   Copy the example environment file and modify it with your values:
+   ```bash
+   cp config.example.js config.js
+   cp .env.example .env
+   ```
+
+4. **Configure MongoDB**
+   Update MongoDB connection URI in your `.env` file.
+
+5. **Compile and deploy smart contracts**
+   ```bash
+   npx hardhat compile
+   npx hardhat run scripts/deploy.js --network localhost
+   ```
+
+6. **Start the application**
+   ```bash
+   # Start all services concurrently
+   npm run dev
+   
+   # Or start services individually
+   npm run backend  # Start Express server
+   npm run hardhat  # Start local Ethereum node
+   npm run ipfs     # Start IPFS daemon
+   ```
+
+## 🏗️ Project Structure
+
 ```
-
-2️⃣ Install dependencies
-```bash
-npm install
+TrustVault/
+├── artifacts/            # Compiled contract artifacts
+├── cache/                # Hardhat cache
+├── contracts/            # Ethereum smart contracts
+│   ├── DocumentVerification.sol
+│   └── PropertyRegistry.sol
+├── deployments/          # Contract deployment data
+├── logs/                 # Application logs
+├── middleware/           # Express middleware
+├── models/               # MongoDB models
+├── public/               # Frontend assets and HTML pages
+│   ├── assets/           # Static assets (images, fonts)
+│   ├── contracts/        # Contract ABIs for frontend
+│   └── *.html, *.js, *.css  # Frontend pages and scripts
+├── scripts/              # Deployment and utility scripts
+├── services/             # Backend services
+├── uploads/              # Document upload storage
+├── utils/                # Utility functions
+├── hardhat.config.js     # Hardhat configuration
+├── package.json          # Project dependencies
+├── server.js             # Express server entry point
+└── README.md             # Project documentation
 ```
-
-3️⃣ Configure environment
-```bash
-cp .env.example .env
-# Edit .env with your settings
-```
-
-4️⃣ Start development server
-```bash
-npm run dev
-```
-
-<div align="center">
-  <img src="https://via.placeholder.com/800x400/0a192f/ffffff?text=Development+Environment+Setup" alt="Setup Process" />
-</div>
 
 ## 💻 Usage
 
-### Land Registry Process
+### User Workflows
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center">
-        <img src="https://via.placeholder.com/150x150/0a192f/ffffff?text=1" width="100" />
-        <br />
-        Connect Wallet
-      </td>
-      <td align="center">
-        <img src="https://via.placeholder.com/150x150/0a192f/ffffff?text=2" width="100" />
-        <br />
-        Upload Documents
-      </td>
-      <td align="center">
-        <img src="https://via.placeholder.com/150x150/0a192f/ffffff?text=3" width="100" />
-        <br />
-        Verify Identity
-      </td>
-      <td align="center">
-        <img src="https://via.placeholder.com/150x150/0a192f/ffffff?text=4" width="100" />
-        <br />
-        Complete Registration
-      </td>
-    </tr>
-  </table>
-</div>
+1. **Property Registration**
+   - Navigate to the property registration page
+   - Fill in property details and upload required documents
+   - Submit the registration request
+   - Track the verification status
+   - Receive blockchain verification once approved
 
-## 📚 API Documentation
+2. **Document Verification**
+   - Go to the document verification section
+   - Upload the document and provide required information
+   - Submit for verification
+   - Track the verification process
+   - Access verified documents with blockchain proof
 
-### Authentication
+3. **Property Transfer**
+   - Select a registered property
+   - Enter new owner details
+   - Complete the transfer process
+   - Verification by government officials
+   - Blockchain record update
 
-```http
-POST /api/auth/login
-GET  /api/auth/verify
-POST /api/auth/logout
-```
+### Government Official Workflow
 
-### Property Management
+1. **Request Verification**
+   - Login to government dashboard
+   - View pending requests
+   - Verify document authenticity
+   - Approve or reject requests
+   - Monitor verification metrics
 
-```http
-GET    /api/properties
-POST   /api/properties/register
-PUT    /api/properties/:id
-DELETE /api/properties/:id
-```
+## 🔒 Security Considerations
 
-<details>
-<summary>View detailed API documentation</summary>
-
-### Authentication Endpoints
-
-`POST /api/auth/login`
-```json
-{
-  "email": "user@example.com",
-  "password": "secure_password"
-}
-```
-
-`GET /api/auth/verify`
-```json
-{
-  "status": "valid",
-  "user": {
-    "id": "user_id",
-    "email": "user@example.com"
-  }
-}
-```
-</details>
-
-## 🔐 Security Features
-
-<div align="center">
-  <table>
-    <tr>
-      <td align="center">
-        <img src="https://via.placeholder.com/80x80/0a192f/ffffff?text=🔒" width="60" />
-        <br />
-        JWT Auth
-      </td>
-      <td align="center">
-        <img src="https://via.placeholder.com/80x80/0a192f/ffffff?text=🛡️" width="60" />
-        <br />
-        XSS Protection
-      </td>
-      <td align="center">
-        <img src="https://via.placeholder.com/80x80/0a192f/ffffff?text=📝" width="60" />
-        <br />
-        Input Validation
-      </td>
-      <td align="center">
-        <img src="https://via.placeholder.com/80x80/0a192f/ffffff?text=🚫" width="60" />
-        <br />
-        Rate Limiting
-      </td>
-    </tr>
-  </table>
-</div>
+- All sensitive data is encrypted before storage
+- Document hashes rather than actual content are stored on the blockchain
+- JWTs have limited lifetime and secure storage
+- Rate limiting prevents brute force attacks
+- Input sanitization prevents injection attacks
+- Document access is restricted by ownership
+- Multi-level verification workflow
 
 ## 🤝 Contributing
 
-We welcome contributions! Please follow these steps:
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-<div align="center">
-  <img src="https://via.placeholder.com/800x200/0a192f/ffffff?text=Join+Our+Community" alt="Community Banner" />
-</div>
 
 ## 📄 License
 
-TrustVault is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under a Custom License with the following key restrictions:
 
-<div align="center">
+- **Non-Commercial Use Only**: Commercial use prohibited without prior written permission
+- **No Financial Gain**: Reproduction for financial or personal gain is prohibited
+- **Required Attribution**: All uses must include proper attribution to the authors
+- **End-User Access**: Permission granted only for trying the software as an end user
 
----
+See the LICENSE file for complete terms.
 
-<h3>
-  <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/People/Technologist.png" alt="Developer" width="25" />
-  Made with ❤️ by the TrustVault Team
-  <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/People/Technologist.png" alt="Developer" width="25" />
-</h3>
+## 👥 Authors
 
-You can contact the maintainers on GitHub or by emailing adarsh.gupta@bca.christuniversity.in
+- **Adarsh** - adarsh.gupta@bca.christuniversity.in
+- **Alok** - alok.tayal@bca.christuniversity.in
+- **Vaibhav** - vaibhav.lalwani@bca.christuniversity.in
 
-</div>
+## 🙏 Acknowledgments
+
+- OpenZeppelin for secure contract libraries
+- The Ethereum community for blockchain infrastructure
+- IPFS project for decentralized storage solutions
