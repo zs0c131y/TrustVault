@@ -215,7 +215,7 @@ See the LICENSE file for complete terms.
 
 ## 👥 Authors
 
-- **Adarsh** - adarsh.gupta@bca.christuniversity.in
+- **Adarsh** - adarsh.g@outlook.in
 - **Alok** - alok.tayal@bca.christuniversity.in
 - **Vaibhav** - vaibhav.lalwani@bca.christuniversity.in
 
